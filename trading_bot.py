@@ -12,7 +12,7 @@ import time
 import pandas as pd
 import numpy as np
 import requests
-from mirae_api import MiraeAssetAPI
+from kis_api import KoreaInvestmentAPI
 import config
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -119,7 +119,7 @@ def execute_rebalance():
         cash_reserve_rate = 0.30 # 약세장 현금 버퍼 30%
 
     # 2. 계좌 잔고 및 보유 종목 조회
-    api = MiraeAssetAPI()
+    api = KoreaInvestmentAPI()
     balance = api.get_balance()
     if not balance:
         print("[오류] 계좌 정보를 불러오지 못했습니다. 프로그램을 중단합니다.")
