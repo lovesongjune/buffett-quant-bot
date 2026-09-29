@@ -1,0 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment & API credentials
+token_cache.json
+.env
+*.log
+
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Unrelated project folders
+html-sentiment-analyzer/
+1.md
