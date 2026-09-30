@@ -4,3 +4,5 @@ FinanceDataReader
 pykrx
 numpy
 matplotlib
+plotly
+streamlit
