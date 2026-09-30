@@ -24,7 +24,8 @@ class KoreaInvestmentAPI:
         self.account_no = config.KIS_ACCOUNT_NO
         self.account_code = config.KIS_ACCOUNT_CODE
         
-        self.token_file = "d:/lsj/antigravity/kis_token_cache.json"
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        self.token_file = os.path.join(BASE_DIR, "kis_token_cache.json")
         self.access_token = None
         self.token_expires_at = None
         
@@ -175,9 +176,12 @@ class KoreaInvestmentAPI:
                 pass
             try:
                 import pandas as pd
-                df = pd.read_csv('d:/lsj/antigravity/data/prices_top100.csv', index_col=0)
-                if code in df.columns:
-                    return int(df[code].dropna().iloc[-1])
+                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+                prices_path = os.path.join(BASE_DIR, 'data', 'prices_top100.csv')
+                if os.path.exists(prices_path):
+                    df = pd.read_csv(prices_path, index_col=0)
+                    if code in df.columns:
+                        return int(df[code].dropna().iloc[-1])
             except Exception:
                 pass
             return 50000

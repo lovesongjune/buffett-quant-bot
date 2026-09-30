@@ -1,4 +1,3 @@
 pandas
-FinanceDataReader
 plotly
 requests

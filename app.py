@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import FinanceDataReader as fdr
 import plotly.graph_objects as go
+import requests
 import time
 import os
 import sys
@@ -11,6 +11,9 @@ import sys
 import config
 from kis_api import KoreaInvestmentAPI
 from trading_bot import check_market_regime, get_ensemble_target_portfolio
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
 
 # Page config
 st.set_page_config(
@@ -163,30 +166,35 @@ tab1, tab2 = st.tabs(["📊 코스피 200일선 시장 지표", "🏆 과거 6�
 
 with tab1:
     try:
-        df_kospi = fdr.DataReader('KS11', '2023-01-01')
-        df_kospi['SMA200'] = df_kospi['Close'].rolling(window=200).mean()
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df_kospi.index, y=df_kospi['Close'], mode='lines', name='KOSPI 지수', line=dict(color='#1f77b4', width=2)))
-        fig.add_trace(go.Scatter(x=df_kospi.index, y=df_kospi['SMA200'], mode='lines', name='200일 이동평균선 (생명선)', line=dict(color='#ff7f0e', width=2, dash='dash')))
-        
-        fig.update_layout(
-            title="코스피 지수 vs 200일 이동평균선 (시장 국면 판단 지표)",
-            xaxis_title="일자",
-            yaxis_title="지수",
-            hovermode="x unified",
-            height=400,
-            margin=dict(l=20, r=20, t=40, b=20)
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        prices_path = os.path.join(DATA_DIR, 'prices_top100.csv')
+        if os.path.exists(prices_path):
+            prices_df = pd.read_csv(prices_path, index_col=0, parse_dates=True)
+            if 'KOSPI' in prices_df.columns:
+                df_kospi = prices_df[['KOSPI']].dropna().loc['2023-01-01':].copy()
+                df_kospi['SMA200'] = df_kospi['KOSPI'].rolling(window=200).mean()
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df_kospi.index, y=df_kospi['KOSPI'], mode='lines', name='KOSPI 지수', line=dict(color='#1f77b4', width=2)))
+                fig.add_trace(go.Scatter(x=df_kospi.index, y=df_kospi['SMA200'], mode='lines', name='200일 이동평균선 (생명선)', line=dict(color='#ff7f0e', width=2, dash='dash')))
+                
+                fig.update_layout(
+                    title="코스피 지수 vs 200일 이동평균선 (시장 국면 판단 지표)",
+                    xaxis_title="일자",
+                    yaxis_title="지수",
+                    hovermode="x unified",
+                    height=400,
+                    margin=dict(l=20, r=20, t=40, b=20)
+                )
+                st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.warning(f"차트 데이터를 불러오는 중: {e}")
 
 with tab2:
     col_chart, col_stat = st.columns([3, 2])
     with col_chart:
-        if os.path.exists("d:/lsj/antigravity/data/backtest_chart.png"):
-            st.image("d:/lsj/antigravity/data/backtest_chart.png", caption="2020~2026 누적 수익률 비교 곡선", use_container_width=True)
+        chart_file = os.path.join(DATA_DIR, "backtest_chart.png")
+        if os.path.exists(chart_file):
+            st.image(chart_file, caption="2020~2026 누적 수익률 비교 곡선", use_container_width=True)
     with col_stat:
         st.markdown("#### 🏆 검증 성과 비교표")
         st.markdown("""

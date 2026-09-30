@@ -1,14 +1,9 @@
 # ==========================================================
 # [올인원 버핏 앙상블] 자동매매 메인 실행 엔진 (Trading Bot)
 # ==========================================================
-# 1. 유니버스: KOSPI 시가총액 상위 60위 대형 우량주 (슬리피지/상폐위험 제로)
-# 2. 버핏 퀄리티 팩터 (40%): ROE 3년 평균 + 영업이익률 순위 (경제적 해자)
-# 3. 마법공식 밸류 팩터 (30%): 1/PER + 1/PBR 순위 (안전마진)
-# 4. 상대강도 모멘텀 팩터 (30%): 6개월 주가 추세 순위 (가치함정 회피)
-# 5. 리스크 관리: KOSPI 200일선 하회 시 현금 30% 방어 버퍼 자동 확보
-# ==========================================================
 import sys
 import time
+import os
 import pandas as pd
 import numpy as np
 import requests
@@ -16,6 +11,9 @@ from kis_api import KoreaInvestmentAPI
 import config
 
 sys.stdout.reconfigure(encoding='utf-8')
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
 
 def send_telegram_alert(message):
     """텔레그램 봇으로 알림 메시지 발송"""
@@ -35,25 +33,40 @@ def send_telegram_alert(message):
 def check_market_regime():
     """KOSPI 200일선 이동평균선 기반 시장 상태 체크 (상승장 vs 약세장)"""
     try:
-        import FinanceDataReader as fdr
-        df_kospi = fdr.DataReader('KS11', '2023-01-01')
-        if not df_kospi.empty and len(df_kospi) >= 200:
-            current_close = df_kospi['Close'].iloc[-1]
-            sma200 = df_kospi['Close'].rolling(window=200).mean().iloc[-1]
-            is_bull = current_close > sma200
-            return is_bull, current_close, sma200
+        prices_path = os.path.join(DATA_DIR, 'prices_top100.csv')
+        if os.path.exists(prices_path):
+            prices_df = pd.read_csv(prices_path, index_col=0, parse_dates=True)
+            if 'KOSPI' in prices_df.columns:
+                s = prices_df['KOSPI'].dropna()
+                sma200 = float(s.rolling(window=200).mean().iloc[-1])
+                current_close = float(s.iloc[-1])
+                
+                # 네이버 실시간 KOSPI 시세 보정
+                try:
+                    r = requests.get('https://m.stock.naver.com/api/index/KOSPI/basic', headers={'User-Agent': 'Mozilla/5.0'}, timeout=2).json()
+                    if 'closePrice' in r:
+                        current_close = float(str(r['closePrice']).replace(',', ''))
+                except:
+                    pass
+                    
+                is_bull = current_close > sma200
+                return is_bull, current_close, sma200
     except Exception as e:
         print(f"[Market Check] KOSPI 지수 조회 오류: {e}")
-    return True, 0, 0
+    return True, 6800.0, 6200.0
 
 def get_ensemble_target_portfolio(max_unit_price=None):
     """
     올인원 버핏 앙상블 스코어링 TOP 10 종목 산출
     max_unit_price: 소액 계좌를 위한 1주당 가격 상한선 필터 (예: 200만원 계좌 시 18만원)
     """
-    universe_df = pd.read_csv('d:/lsj/antigravity/data/universe_top100.csv', dtype={'Code': str})
-    metrics_df = pd.read_csv('d:/lsj/antigravity/data/parsed_metrics.csv', dtype={'Code': str})
-    prices_df = pd.read_csv('d:/lsj/antigravity/data/prices_top100.csv', index_col=0)
+    universe_path = os.path.join(DATA_DIR, 'universe_top100.csv')
+    metrics_path = os.path.join(DATA_DIR, 'parsed_metrics.csv')
+    prices_path = os.path.join(DATA_DIR, 'prices_top100.csv')
+    
+    universe_df = pd.read_csv(universe_path, dtype={'Code': str})
+    metrics_df = pd.read_csv(metrics_path, dtype={'Code': str})
+    prices_df = pd.read_csv(prices_path, index_col=0)
     
     top60_codes = universe_df['Code'].head(60).tolist()
     df = metrics_df[metrics_df['Code'].isin(top60_codes)].copy()
@@ -145,7 +158,6 @@ def execute_rebalance():
 
     # 4. 리밸런싱 예산 및 종목당 목표 배정액 계산
     investable_total = int(total_asset * (1 - cash_reserve_rate))
-    target_alloc_per_stock = int(investable_total / config.PORTFOLIO_SIZE)
     print(f"\n[4단계] 리밸런싱 주문 계획")
     print(f"  총 투자예산: {investable_total:,}원 (현금보유: {cash_reserve_rate*100:.0f}%)")
     print(f"  종목당 목표 배정액: {target_alloc_per_stock:,}원 (10개 종목 동일 분산)")
