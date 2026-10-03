@@ -90,11 +90,11 @@ class CIOAgent:
 
     def deliberate(self, macro_report, equity_report, budget_val, targets):
         prompt = f"""
-[1. 매크로 전략실 보고서 요약]
-{macro_report[:600]}...
+[1. 매크로 전략실 보고서 전문]
+{macro_report}
 
-[2. 리서치센터 기업분석 요약]
-{equity_report[:600]}...
+[2. 리서치센터 기업분석 보고서 전문]
+{equity_report}
 
 [3. 계좌 제약 조건]
 - 총 운용 자금: {budget_val:,} 원 (소중한 200만 원 종자돈)
@@ -105,7 +105,8 @@ class CIOAgent:
 1. 종합 심의 결론 (매크로와 기업 실적의 교차 검증 총평)
 2. 포트폴리오 승인 및 리스크 관리 지침 (현금 비중 및 원금 보존 원칙)
 3. 고객(투자자)에게 전하는 당부의 한마디 (변동성에 흔들리지 않는 장기 복리 마인드셋)
-품격 있고 든든하며 신뢰감을 주는 최고투자책임자의 어조로 작성해주세요.
+
+품격 있고 든든하며 신뢰감을 주는 최고투자책임자의 어조로 작성해주시고, 문장이 도중에 끊기지 않도록 끝까지 완결된 문장으로 서술해주세요.
 """
         return self.client.generate(prompt, system_instruction=self.role)
 

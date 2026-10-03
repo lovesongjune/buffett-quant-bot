@@ -19,7 +19,7 @@ class GeminiClient:
         # Fallback list of models
         self.models = ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-flash-latest"]
         
-    def generate(self, prompt, system_instruction=None, max_retries=2):
+    def generate(self, prompt, system_instruction=None, max_output_tokens=8192, max_retries=2):
         """Gemini 모델을 호출하여 분석 보고서를 생성합니다."""
         if not self.api_key or self.api_key == "YOUR_GEMINI_API_KEY_HERE":
             return "[Gemini AI] API 키가 설정되지 않았습니다. .env 또는 설정에서 키를 등록해주세요."
@@ -46,7 +46,7 @@ class GeminiClient:
             "contents": contents,
             "generationConfig": {
                 "temperature": 0.4,
-                "maxOutputTokens": 2048
+                "maxOutputTokens": max_output_tokens
             }
         }
 
@@ -54,7 +54,7 @@ class GeminiClient:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
             for attempt in range(max_retries):
                 try:
-                    resp = requests.post(url, headers=headers, json=payload, timeout=25)
+                    resp = requests.post(url, headers=headers, json=payload, timeout=45)
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
