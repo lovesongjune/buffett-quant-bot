@@ -69,13 +69,21 @@ budget_input = st.sidebar.number_input(
     format="%d"
 )
 
-# Check Gemini Key
-gemini_key_present = bool(config.GEMINI_API_KEY and config.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE")
-if not gemini_key_present:
-    user_key = st.sidebar.text_input("Google Gemini API 키 입력", type="password")
+# Gemini API Key resolution: st.secrets -> config/env -> session_state -> sidebar
+current_gemini_key = ""
+if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+    current_gemini_key = st.secrets["GEMINI_API_KEY"]
+elif config.GEMINI_API_KEY and config.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
+    current_gemini_key = config.GEMINI_API_KEY
+elif "gemini_api_key" in st.session_state and st.session_state["gemini_api_key"]:
+    current_gemini_key = st.session_state["gemini_api_key"]
+
+with st.sidebar.expander("🔑 Gemini AI API 키 설정", expanded=not bool(current_gemini_key)):
+    user_key = st.text_input("Google Gemini API 키", value=current_gemini_key, type="password", placeholder="AQ... 또는 AIzaSy...")
     if user_key:
-        config.GEMINI_API_KEY = user_key
-        gemini_key_present = True
+        current_gemini_key = user_key
+        st.session_state["gemini_api_key"] = user_key
+        st.success("API 키 적용 완료!")
 
 st.sidebar.markdown("---")
 st.sidebar.info("""
@@ -150,7 +158,10 @@ with tab_committee:
     with col_btn:
         call_committee = st.button("🎙️ 투자심의위원회 회의 소집 (실시간 분석 실행)", type="primary")
     with col_info:
-        st.caption("버튼을 누르면 Gemini AI 모델이 즉시 실시간 거시경제와 10개 기업 데이터를 교차 분석합니다.")
+        if not current_gemini_key:
+            st.warning("⚠️ 좌측 사이드바에서 Gemini API 키를 먼저 입력해주세요.")
+        else:
+            st.caption("버튼을 누르면 Gemini AI 모델이 즉시 실시간 거시경제와 10개 기업 데이터를 교차 분석합니다.")
 
     # Calculate portfolio candidates for analysis
     max_price = target_alloc if budget_input <= 5000000 else None
@@ -158,32 +169,35 @@ with tab_committee:
 
     if call_committee or ("committee_results" in st.session_state):
         if call_committee:
-            with st.spinner("🏛️ 3대 전문 부서 에이전트가 회의를 진행하고 있습니다... (매크로 진단 ➔ 기업분석 ➔ CIO 의결)"):
-                res = run_investment_committee(budget_input, targets, is_bull, kospi_val, sma200)
-                st.session_state["committee_results"] = res
-        else:
+            if not current_gemini_key:
+                st.error("좌측 사이드바의 [🔑 Gemini AI API 키 설정]에서 API 키를 입력해 주세요!")
+            else:
+                with st.spinner("🏛️ 3대 전문 부서 에이전트가 회의를 진행하고 있습니다... (매크로 진단 ➔ 기업분석 ➔ CIO 의결)"):
+                    res = run_investment_committee(budget_input, targets, is_bull, kospi_val, sma200, api_key=current_gemini_key)
+                    st.session_state["committee_results"] = res
+        
+        if "committee_results" in st.session_state:
             res = st.session_state["committee_results"]
-
-        st.success("✅ 투자심의위원회 회의록 작성이 완료되었습니다.")
-        
-        # Display 3 Agents' Reports
-        sub_c1, sub_c2, sub_c3 = st.tabs([
-            "🌐 1. 매크로 전략실 보고서",
-            "📊 2. 기업분석 리서치센터 보고서",
-            "🛡️ 3. CIO 최종 의결서"
-        ])
-        
-        with sub_c1:
-            st.markdown("### 🌐 글로벌 매크로 & 시황 전략실 보고서")
-            st.markdown(res["macro_report"])
+            st.success("✅ 투자심의위원회 회의록 작성이 완료되었습니다.")
             
-        with sub_c2:
-            st.markdown("### 📊 기업 펀더멘털 & 밸류에이션 리포트")
-            st.markdown(res["equity_report"])
+            # Display 3 Agents' Reports
+            sub_c1, sub_c2, sub_c3 = st.tabs([
+                "🌐 1. 매크로 전략실 보고서",
+                "📊 2. 기업분석 리서치센터 보고서",
+                "🛡️ 3. CIO 최종 의결서"
+            ])
             
-        with sub_c3:
-            st.markdown("### 🛡️ 투자심의위원회 최종 의결서 (CIO Memo)")
-            st.markdown(res["cio_memo"])
+            with sub_c1:
+                st.markdown("### 🌐 글로벌 매크로 & 시황 전략실 보고서")
+                st.markdown(res["macro_report"])
+                
+            with sub_c2:
+                st.markdown("### 📊 기업 펀더멘털 & 밸류에이션 리포트")
+                st.markdown(res["equity_report"])
+                
+            with sub_c3:
+                st.markdown("### 🛡️ 투자심의위원회 최종 의결서 (CIO Memo)")
+                st.markdown(res["cio_memo"])
 
 # -------------------------------------------------------------
 # TAB 2: Portfolio & Execution

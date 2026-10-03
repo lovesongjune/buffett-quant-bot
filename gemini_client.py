@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 import time
@@ -5,7 +6,16 @@ import config
 
 class GeminiClient:
     def __init__(self, api_key=None):
-        self.api_key = api_key or config.GEMINI_API_KEY
+        if not api_key:
+            try:
+                import streamlit as st
+                if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+                    api_key = st.secrets["GEMINI_API_KEY"]
+                elif hasattr(st, "session_state") and "gemini_api_key" in st.session_state and st.session_state["gemini_api_key"]:
+                    api_key = st.session_state["gemini_api_key"]
+            except Exception:
+                pass
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or config.GEMINI_API_KEY
         # Fallback list of models
         self.models = ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-flash-latest"]
         

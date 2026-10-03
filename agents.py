@@ -109,11 +109,11 @@ class CIOAgent:
 """
         return self.client.generate(prompt, system_instruction=self.role)
 
-def run_investment_committee(budget_val, candidates, is_bull, kospi_val, sma200):
+def run_investment_committee(budget_val, candidates, is_bull, kospi_val, sma200, api_key=None):
     """
     3개 부서 AI 에이전트가 유기적으로 회의를 진행하고 종합 회의록을 반환합니다.
     """
-    client = GeminiClient()
+    client = GeminiClient(api_key=api_key)
     macro_data = get_live_macro_indicators()
     
     macro_agent = MacroStrategistAgent(client)
