@@ -85,13 +85,14 @@ with st.sidebar.expander("🔑 Gemini AI API 키 설정", expanded=not bool(curr
         st.session_state["gemini_api_key"] = user_key
         st.success("API 키 적용 완료!")
 
-st.sidebar.markdown("---")
 st.sidebar.info("""
-🏛️ **AI 가상 증권사 조직 체계**
-1. **매크로 전략실:** KOSPI, 나스닥, 환율 등 거시경제 진단
-2. **리서치센터:** 10개 우량주 펀더멘털 & 해자(Moat) 분석
-3. **투자심의위원회(CIO):** 교차 검증 및 200만 원 자산배분 승인
-4. **트레이딩팀:** 10개 종목 증권사 자동 매매 주문
+🏛️ **AI 가상 증권사 5대 전문 부서 체계**
+1. **🌐 매크로 전략실:** KOSPI, 200 SMA, 환율, 나스닥 진단
+2. **📊 리서치센터:** 10개 우량주 펀더멘털 & 3년 ROE 해자
+3. **🩸 리스크 검증 레드팀:** 공매도 시각, 잠재 지뢰·가치함정 고발
+4. **📈 수급 & 테크니컬팀:** 외인·기관 자금 흐름 & 6M 모멘텀
+5. **🛡️ 투자심의위원회(CIO):** 4대 부서 교차 검증 및 200만 원 의결
+6. **🤖 트레이딩팀:** 증권사 Open API 자동 분할 주문
 """)
 
 # Main Title
@@ -151,17 +152,17 @@ tab_committee, tab_portfolio, tab_chart = st.tabs([
 # TAB 1: AI Investment Committee Meetings
 # -------------------------------------------------------------
 with tab_committee:
-    st.subheader("🎙️ AI 가상 증권사 투자심의위원회 (Investment Committee)")
-    st.write("매크로 수석 이코노미스트, 리서치센터장, 최고투자책임자(CIO) 에이전트가 실시간 데이터를 바탕으로 심의를 진행합니다.")
+    st.subheader("🎙️ AI 가상 증권사 5대 전문 부서 투자심의위원회 (Investment Committee)")
+    st.write("매크로 전략실, 펀더멘털 리서치센터, 리스크 검증 레드팀, 수급·테크니컬 퀀트팀, 최고투자책임자(CIO)가 유기적으로 교차 검증을 진행합니다.")
     
     col_btn, col_info = st.columns([1, 2])
     with col_btn:
-        call_committee = st.button("🎙️ 투자심의위원회 회의 소집 (실시간 분석 실행)", type="primary")
+        call_committee = st.button("🎙️ 5대 부서 투자심의위원회 회의 소집 (실시간 분석 실행)", type="primary")
     with col_info:
         if not current_gemini_key:
             st.warning("⚠️ 좌측 사이드바에서 Gemini API 키를 먼저 입력해주세요.")
         else:
-            st.caption("버튼을 누르면 Gemini AI 모델이 즉시 실시간 거시경제와 10개 기업 데이터를 교차 분석합니다.")
+            st.caption("버튼을 누르면 Gemini AI 모델이 즉시 5대 전문 부서의 시각으로 교차 분석 및 종합 의결서를 작성합니다.")
 
     # Calculate portfolio candidates for analysis
     max_price = target_alloc if budget_input <= 5000000 else None
@@ -172,32 +173,44 @@ with tab_committee:
             if not current_gemini_key:
                 st.error("좌측 사이드바의 [🔑 Gemini AI API 키 설정]에서 API 키를 입력해 주세요!")
             else:
-                with st.spinner("🏛️ 3대 전문 부서 에이전트가 회의를 진행하고 있습니다... (매크로 진단 ➔ 기업분석 ➔ CIO 의결)"):
+                with st.spinner("🏛️ 5대 전문 부서 에이전트가 격론을 벌이고 있습니다... (매크로 ➔ 펀더멘털 ➔ 레드팀 리스크 검증 ➔ 수급·테크니컬 ➔ CIO 종합 의결)"):
                     res = run_investment_committee(budget_input, targets, is_bull, kospi_val, sma200, api_key=current_gemini_key)
                     st.session_state["committee_results"] = res
         
         if "committee_results" in st.session_state:
             res = st.session_state["committee_results"]
-            st.success("✅ 투자심의위원회 회의록 작성이 완료되었습니다.")
+            st.success("✅ 5대 부서 투자심의위원회 종합 회의록 작성이 완료되었습니다.")
             
-            # Display 3 Agents' Reports
-            sub_c1, sub_c2, sub_c3 = st.tabs([
-                "🌐 1. 매크로 전략실 보고서",
-                "📊 2. 기업분석 리서치센터 보고서",
-                "🛡️ 3. CIO 최종 의결서"
+            # Display 5 Agents' Reports
+            sub_c1, sub_c2, sub_c3, sub_c4, sub_c5 = st.tabs([
+                "🌐 1. 매크로 전략실",
+                "📊 2. 기업분석 리서치",
+                "🩸 3. 리스크 검증 레드팀",
+                "📈 4. 수급 & 테크니컬 퀀트",
+                "🛡️ 5. CIO 최종 의결서"
             ])
             
             with sub_c1:
                 st.markdown("### 🌐 글로벌 매크로 & 시황 전략실 보고서")
-                st.markdown(res["macro_report"])
+                st.markdown(res.get("macro_report", ""))
                 
             with sub_c2:
                 st.markdown("### 📊 기업 펀더멘털 & 밸류에이션 리포트")
-                st.markdown(res["equity_report"])
+                st.markdown(res.get("equity_report", ""))
                 
             with sub_c3:
-                st.markdown("### 🛡️ 투자심의위원회 최종 의결서 (CIO Memo)")
-                st.markdown(res["cio_memo"])
+                st.markdown("### 🩸 리스크 검증 레드팀 보고서 (Devil's Advocate / 공매도 시각)")
+                st.info("💡 **찰리 멍거의 'Invert(역발상)' 원칙**: 낙관론을 배제하고 잠재 지뢰, 밸류 트랩, 최악의 시나리오를 가차 없이 고발합니다.")
+                st.markdown(res.get("risk_report", "보고서를 불러오는 중입니다..."))
+
+            with sub_c4:
+                st.markdown("### 📈 수급 & 테크니컬 퀀트 전략 보고서 (Smart Money Flow & Momentum)")
+                st.info("💡 **스마트 머니 추적**: 외인·기관 자금 흐름과 6개월 가격 모멘텀, 기술적 지지선을 바탕으로 최적의 타이밍을 진단합니다.")
+                st.markdown(res.get("flow_report", "보고서를 불러오는 중입니다..."))
+                
+            with sub_c5:
+                st.markdown("### 🛡️ 투자심의위원회 최종 의결서 (CIO Memo & 다각적 스코어카드)")
+                st.markdown(res.get("cio_memo", ""))
 
 # -------------------------------------------------------------
 # TAB 2: Portfolio & Execution
