@@ -17,6 +17,14 @@ def _load_env():
 
 _load_env()
 
+# Streamlit Cloud Secrets 지원
+try:
+    import streamlit as st
+    if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+        os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    pass
+
 # 1. Google Gemini AI API Key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
