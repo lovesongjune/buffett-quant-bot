@@ -174,7 +174,7 @@ class CIOAgent:
 """
         return self.client.generate(prompt, system_instruction=self.role)
 
-def run_investment_committee(budget_val, candidates, is_bull, kospi_val, sma200, api_key=None):
+def run_investment_committee(budget_val, candidates, is_bull, kospi_val, sma200, api_key=None, progress_callback=None):
     """
     5개 전문 부서 AI 에이전트가 유기적으로 회의를 진행하고 종합 회의록을 반환합니다.
     """
@@ -188,18 +188,23 @@ def run_investment_committee(budget_val, candidates, is_bull, kospi_val, sma200,
     cio_agent = CIOAgent(client)
     
     # 1. 매크로 시황 진단
+    if progress_callback: progress_callback(1, "🌐 [1/5] 매크로 전략실: 글로벌 시황 & KOSPI 200일선 진단 중...")
     macro_report = macro_agent.analyze(is_bull, kospi_val, sma200, macro_data)
     
     # 2. 펀더멘털 리서치센터 분석
+    if progress_callback: progress_callback(2, "📊 [2/5] 리서치센터: 10개 우량주 펀더멘털 & 3년 ROE 해자 분석 중...")
     equity_report = equity_agent.analyze(candidates)
     
     # 3. 리스크 검증 레드팀 (Devil's Advocate) 비판 심의
+    if progress_callback: progress_callback(3, "🩸 [3/5] 리스크 레드팀: 악마의 대변인 잠재 지뢰 & 밸류 트랩 고발 중...")
     risk_report = risk_agent.challenge(candidates, equity_report)
     
     # 4. 수급 & 테크니컬 퀀트 모멘텀 진단
+    if progress_callback: progress_callback(4, "📈 [4/5] 수급·테크니컬팀: 스마트머니 자금 흐름 & 모멘텀 추적 중...")
     flow_report = flow_agent.analyze_flows(candidates, macro_data)
     
     # 5. CIO 종합 심의 및 최종 의결서 작성
+    if progress_callback: progress_callback(5, "🛡️ [5/5] CIO 투자심의위원회: 4대 부서 교차 검증 및 최종 의결서 작성 중...")
     cio_memo = cio_agent.deliberate(macro_report, equity_report, risk_report, flow_report, budget_val, candidates)
     
     return {

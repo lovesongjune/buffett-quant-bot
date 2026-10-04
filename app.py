@@ -199,8 +199,16 @@ with tab_committee:
             if not current_gemini_key:
                 st.error("좌측 사이드바의 [🔑 Gemini AI API 키 설정]에서 API 키를 입력해 주세요!")
             else:
-                with st.spinner("🏛️ 5대 전문 부서 에이전트가 격론을 벌이고 있습니다... (매크로 ➔ 펀더멘털 ➔ 레드팀 리스크 검증 ➔ 수급·테크니컬 ➔ CIO 종합 의결)"):
-                    res = run_investment_committee(budget_input, targets, is_bull, kospi_val, sma200, api_key=current_gemini_key)
+                with st.status("🏛️ 5대 전문 부서 에이전트 합동 회의 진행 중...", expanded=True) as status_box:
+                    def on_progress(step, msg):
+                        status_box.write(f"**{msg}**")
+                    
+                    res = run_investment_committee(
+                        budget_input, targets, is_bull, kospi_val, sma200,
+                        api_key=current_gemini_key,
+                        progress_callback=on_progress
+                    )
+                    status_box.update(label="🎉 5대 부서 종합 심의 회의록 작성이 완료되었습니다!", state="complete", expanded=False)
                     st.session_state["committee_results"] = res
         
         if "committee_results" in st.session_state:
