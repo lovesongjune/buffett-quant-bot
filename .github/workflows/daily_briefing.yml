@@ -1,0 +1,31 @@
+name: Morning 08:50 Mobile Daily Briefing
+
+on:
+  # 월~금 아침 08:50 KST (일~목 UTC 23:50)에 자동 실행
+  schedule:
+    - cron: '50 23 * * 0-4'
+  # GitHub 웹 화면에서 수동 실행 가능
+  workflow_dispatch:
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 3.12 환경 구성
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 필수 라이브러리 설치
+        run: |
+          pip install -r requirements.txt
+
+      - name: 모닝 30초 브리핑 생성 및 텔레그램 발송
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python daily_briefing.py
