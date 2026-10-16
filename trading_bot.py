@@ -55,9 +55,9 @@ def check_market_regime():
         print(f"[Market Check] KOSPI 지수 조회 오류: {e}")
     return True, 6800.0, 6200.0
 
-def get_ensemble_target_portfolio(max_unit_price=None):
+def get_ensemble_target_portfolio(max_unit_price=None, top_n=None):
     """
-    올인원 버핏 앙상블 스코어링 TOP 10 종목 산출
+    올인원 버핏 앙상블 스코어링 TOP N 종목 산출
     max_unit_price: 소액 계좌를 위한 1주당 가격 상한선 필터 (예: 200만원 계좌 시 18만원)
     """
     universe_path = os.path.join(DATA_DIR, 'universe_top100.csv')
@@ -110,8 +110,70 @@ def get_ensemble_target_portfolio(max_unit_price=None):
         0.30 * df_valid['Rank_Mom']
     )
     
-    top10 = df_valid.sort_values(by='Ensemble_Score').head(config.PORTFOLIO_SIZE)
-    return top10[['Code', 'Name', 'ROE_Avg3', 'OP_Margin', 'PER', 'PBR', 'Debt_Ratio', 'Mom_6M']].to_dict(orient='records')
+    target_count = top_n or config.PORTFOLIO_SIZE
+    top_stocks = df_valid.sort_values(by='Ensemble_Score').head(target_count)
+    return top_stocks[['Code', 'Name', 'ROE_Avg3', 'OP_Margin', 'PER', 'PBR', 'Debt_Ratio', 'Mom_6M']].to_dict(orient='records')
+
+# -------------------------------------------------------------
+# 미국 메가트렌드 해자 유니버스 & 포트폴리오
+# -------------------------------------------------------------
+US_MOAT_UNIVERSE = [
+    {"Ticker": "NVDA", "Name": "엔비디아 (NVIDIA)", "Sector": "AI 반도체", "Moat": "AI 가속기 글로벌 독점", "ROE": 115.0},
+    {"Ticker": "AAPL", "Name": "애플 (Apple)", "Sector": "빅테크/디바이스", "Moat": "강력한 하드웨어 생태계 락인", "ROE": 147.0},
+    {"Ticker": "MSFT", "Name": "마이크로소프트 (Microsoft)", "Sector": "클라우드/SW", "Moat": "기업용 B2B 소프트웨어 독점", "ROE": 38.0},
+    {"Ticker": "GOOGL", "Name": "알파벳 (Google)", "Sector": "인터넷/검색", "Moat": "글로벌 검색 및 유튜브 플랫폼", "ROE": 31.0},
+    {"Ticker": "AMZN", "Name": "아마존 (Amazon)", "Sector": "이커머스/AWS", "Moat": "글로벌 물류 인프라 & 클라우드", "ROE": 22.0},
+    {"Ticker": "BRK-B", "Name": "버크셔 해서웨이", "Sector": "복합금융/가치투자", "Moat": "워렌 버핏의 60년 복리 자산배분", "ROE": 16.0},
+    {"Ticker": "COST", "Name": "코스트코 (Costco)", "Sector": "유통/구독소비", "Moat": "유료 멤버십 갱신율 93%", "ROE": 31.0},
+    {"Ticker": "LLY", "Name": "일라이 릴리 (Eli Lilly)", "Sector": "바이오/헬스케어", "Moat": "GLP-1 비만/당뇨 치료제 독점", "ROE": 62.0},
+    {"Ticker": "AVGO", "Name": "브로드컴 (Broadcom)", "Sector": "통신/커스텀반도체", "Moat": "네트워크 및 커스텀 ASIC 표준", "ROE": 35.0},
+    {"Ticker": "KO", "Name": "코카콜라 (Coca-Cola)", "Sector": "필수소비재/배당", "Moat": "62년 연속 배당성장 글로벌 브랜드", "ROE": 42.0}
+]
+
+def get_us_moat_target_portfolio(budget_usd=1500.0, top_n=10):
+    """
+    미국 메가트렌드 해자 TOP N 포트폴리오 산출 (소수점 매매 수량 계산)
+    """
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    items = US_MOAT_UNIVERSE[:top_n]
+    per_stock_usd = budget_usd / len(items) if len(items) > 0 else 0
+    
+    results = []
+    for s in items:
+        ticker = s['Ticker']
+        price = 150.0
+        change_pct = 0.0
+        hi_52 = 180.0
+        lo_52 = 120.0
+        
+        try:
+            u = f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d'
+            r = requests.get(u, headers=headers, timeout=2.0).json()
+            meta = r['chart']['result'][0]['meta']
+            price = meta.get('regularMarketPrice', 150.0)
+            change_pct = meta.get('regularMarketChangePercent', 0.0)
+            hi_52 = meta.get('fiftyTwoWeekHigh', price * 1.2)
+            lo_52 = meta.get('fiftyTwoWeekLow', price * 0.8)
+        except Exception:
+            pass
+            
+        frac_shares = round(per_stock_usd / price, 3) if price > 0 else 0
+        est_usd = round(frac_shares * price, 2)
+        
+        results.append({
+            "Ticker": ticker,
+            "Name": s["Name"],
+            "Sector": s["Sector"],
+            "Moat": s["Moat"],
+            "ROE": s["ROE"],
+            "Price_USD": price,
+            "Change_Pct": change_pct,
+            "Target_Shares": frac_shares,
+            "Target_USD": est_usd,
+            "High_52W": hi_52,
+            "Low_52W": lo_52
+        })
+    return results
 
 def execute_rebalance():
     print("="*75)
