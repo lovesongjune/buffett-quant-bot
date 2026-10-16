@@ -12,7 +12,11 @@ import config
 from kis_api import KoreaInvestmentAPI
 from trading_bot import check_market_regime, get_ensemble_target_portfolio
 from agents import run_investment_committee, get_live_macro_indicators
-from stock_doctor import get_stock_doctor_data, diagnose_stock_with_ai
+from stock_doctor import (
+    get_stock_doctor_data, diagnose_stock_with_ai,
+    get_us_stock_data, diagnose_us_stock_with_ai,
+    POPULAR_US_STOCKS
+)
 from daily_briefing import generate_morning_briefing, send_telegram_message
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -250,50 +254,117 @@ with tab_committee:
 # TAB 2: Single Stock Deep Doctor (Step 1)
 # -------------------------------------------------------------
 with tab_doctor:
-    st.subheader("🩺 5대 전문 부서 원클릭 종목 건강검진기 (Stock Health Doctor)")
-    st.caption("유튜브, 뉴스, 지인 추천 종목에 뇌동매매하지 마세요. 5대 전문 부서가 펀더멘털, 공매도 리스크, 스마트머니 수급을 10초 만에 정밀 진단합니다.")
+    st.subheader("🩺 5대 전문 부서 원클릭 종목 건강검진기 (Global Stock Health Doctor)")
+    st.caption("한국 우량주(KOSPI/KOSDAQ) 및 미국 글로벌 대표주(S&P 500/NASDAQ)를 5대 전문 부서가 10초 만에 교차 검증합니다.")
 
-    stocks = load_universe_stocks()
-    stock_options = [f"{s['Code']} | {s['Name']}" for s in stocks]
-    
-    col_sel, col_custom = st.columns([2, 1])
-    with col_sel:
-        selected_option = st.selectbox("진단할 우량주 선택 (TOP 100)", options=stock_options, index=0)
-        selected_code = selected_option.split(" | ")[0]
-    with col_custom:
-        custom_code = st.text_input("직접 6자리 종목코드 입력", placeholder="예: 035720 (카카오)")
-        if custom_code.strip():
-            selected_code = custom_code.strip()
+    market_choice = st.radio(
+        "시장 선택",
+        ["🇰🇷 한국 주식 (KOSPI/KOSDAQ)", "🇺🇸 미국 주식 (S&P 500 / NASDAQ)"],
+        horizontal=True
+    )
 
-    # Fetch Real-time info
-    stock_info = get_stock_doctor_data(selected_code)
-    
-    if "error" in stock_info:
-        st.error(stock_info["error"])
-    else:
-        # Stock Summary Cards
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("종목명 / 현재가", f"{stock_info['name']}", f"{stock_info['price']}원")
-        c2.metric("PER / PBR", f"{stock_info['per']}", f"PBR {stock_info['pbr']}")
-        c3.metric("시가총액 / 외국인율", f"{stock_info['marcap']}", f"{stock_info['foreign_rate']}")
-        c4.metric("52주 최고 / 최저", f"{stock_info['high_52w']}원", f"최저 {stock_info['low_52w']}원")
+    if "한국" in market_choice:
+        stocks = load_universe_stocks()
+        stock_options = [f"{s['Code']} | {s['Name']}" for s in stocks]
         
-        # Recent Flows
-        st.caption(f"👥 최근 3거래일 누적 외인 순매수: **{stock_info['foreign_net_sum']:,}주** | 기관 순매수: **{stock_info['organ_net_sum']:,}주** | 배당수익률: **{stock_info['dividend_yield']}**")
+        col_sel, col_custom = st.columns([2, 1])
+        with col_sel:
+            selected_option = st.selectbox("진단할 한국 우량주 선택 (TOP 100)", options=stock_options, index=0)
+            selected_code = selected_option.split(" | ")[0]
+        with col_custom:
+            custom_code = st.text_input("직접 6자리 종목코드 입력", placeholder="예: 035720 (카카오)")
+            if custom_code.strip():
+                selected_code = custom_code.strip()
 
-        btn_diagnose = st.button(f"🩺 [{stock_info['name']}] 5대 부서 종합 건강검진 시작", type="primary")
+        # Fetch Real-time info
+        stock_info = get_stock_doctor_data(selected_code)
+        
+        if "error" in stock_info:
+            st.error(stock_info["error"])
+        else:
+            # Stock Summary Cards
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("종목명 / 현재가", f"{stock_info['name']}", f"{stock_info['price']}원")
+            c2.metric("PER / PBR", f"{stock_info['per']}", f"PBR {stock_info['pbr']}")
+            c3.metric("시가총액 / 외국인율", f"{stock_info['marcap']}", f"{stock_info['foreign_rate']}")
+            c4.metric("52주 최고 / 최저", f"{stock_info['high_52w']}원", f"최저 {stock_info['low_52w']}원")
+            
+            # Recent Flows
+            st.caption(f"👥 최근 3거래일 누적 외인 순매수: **{stock_info['foreign_net_sum']:,}주** | 기관 순매수: **{stock_info['organ_net_sum']:,}주** | 배당수익률: **{stock_info['dividend_yield']}**")
 
-        if btn_diagnose:
-            if not current_gemini_key:
-                st.error("좌측 사이드바에서 Gemini API 키를 먼저 입력해주세요!")
-            else:
-                with st.spinner(f"🏛️ 5대 전문 부서가 [{stock_info['name']}]의 재무제표와 수급, 잠재 지뢰를 분해하여 진단서를 작성하고 있습니다..."):
-                    diag_report = diagnose_stock_with_ai(stock_info, api_key=current_gemini_key)
-                    st.session_state[f"doctor_{selected_code}"] = diag_report
+            btn_diagnose = st.button(f"🩺 [{stock_info['name']}] 5대 부서 종합 건강검진 시작", type="primary")
 
-        if f"doctor_{selected_code}" in st.session_state:
-            st.success(f"✅ [{stock_info['name']}] 종합 건강 검진표 발급 완료")
-            st.markdown(st.session_state[f"doctor_{selected_code}"])
+            if btn_diagnose:
+                if not current_gemini_key:
+                    st.error("좌측 사이드바에서 Gemini API 키를 먼저 입력해주세요!")
+                else:
+                    with st.spinner(f"🏛️ 5대 전문 부서가 [{stock_info['name']}]의 재무제표와 수급, 잠재 지뢰를 분해하여 진단서를 작성하고 있습니다..."):
+                        diag_report = diagnose_stock_with_ai(stock_info, api_key=current_gemini_key)
+                        st.session_state[f"doctor_{selected_code}"] = diag_report
+
+            if f"doctor_{selected_code}" in st.session_state:
+                st.success(f"✅ [{stock_info['name']}] 종합 건강 검진표 발급 완료")
+                st.markdown(st.session_state[f"doctor_{selected_code}"])
+
+    else:
+        # 🇺🇸 미국 주식
+        us_options = [f"{s['Ticker']} | {s['Name']}" for s in POPULAR_US_STOCKS]
+        
+        col_sel, col_custom = st.columns([2, 1])
+        with col_sel:
+            selected_us_option = st.selectbox("진단할 미국 대표 우량주 선택", options=us_options, index=0)
+            selected_ticker = selected_us_option.split(" | ")[0]
+        with col_custom:
+            custom_ticker = st.text_input("직접 영문 티커(Ticker) 입력", placeholder="예: PLTR, AMD, DIS 등")
+            if custom_ticker.strip():
+                selected_ticker = custom_ticker.strip().upper()
+
+        # Fetch Real-time US stock info
+        us_stock_info = get_us_stock_data(selected_ticker)
+        
+        if "error" in us_stock_info:
+            st.error(us_stock_info["error"])
+        else:
+            # Stock Summary Cards
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(
+                "티커 / 실시간 달러 주가",
+                f"${us_stock_info['price_usd']:,.2f}",
+                f"{us_stock_info['change_pct']:+.2f}% (오늘)"
+            )
+            c2.metric(
+                "원화 환산 단가 (200만 원 계좌)",
+                f"약 {us_stock_info['price_krw']:,} 원",
+                f"환율 {macro_indicators.get('USDKRW', '1,350')}원 기준"
+            )
+            c3.metric(
+                "월가 컨센서스 목표주가",
+                f"${us_stock_info['target_mean']}" if us_stock_info['target_mean'] != 'N/A' else '컨센서스 집계 중',
+                f"투자의견 {us_stock_info['recomm_mean']} / 5.0" if us_stock_info['recomm_mean'] != 'N/A' else '전문가 분석 중'
+            )
+            c4.metric(
+                "52주 최고 / 최저 밴드",
+                f"${us_stock_info['high_52w']:,.2f}",
+                f"최저 ${us_stock_info['low_52w']:,.2f}"
+            )
+            
+            if us_stock_info.get("summary"):
+                st.info(f"🏢 **기업 개요:** {us_stock_info['summary']}")
+            st.caption(f"💡 **소수점 매매 팁:** 미래에셋/한국투자증권 계좌로 1주 단위가 아니더라도 0.01주 단위(약 1~2만 원)로 분할 매수 가능합니다.")
+
+            btn_us_diagnose = st.button(f"🩺 [{us_stock_info['name']} ({selected_ticker})] 5대 부서 종합 건강검진 시작", type="primary")
+
+            if btn_us_diagnose:
+                if not current_gemini_key:
+                    st.error("좌측 사이드바에서 Gemini API 키를 먼저 입력해주세요!")
+                else:
+                    with st.spinner(f"🏛️ 5대 전문 부서가 [{us_stock_info['name']}]의 글로벌 독점력, 반독점 리스크, 월가 수급을 분석하고 있습니다..."):
+                        us_diag_report = diagnose_us_stock_with_ai(us_stock_info, api_key=current_gemini_key)
+                        st.session_state[f"doctor_us_{selected_ticker}"] = us_diag_report
+
+            if f"doctor_us_{selected_ticker}" in st.session_state:
+                st.success(f"✅ [{us_stock_info['name']}] 글로벌 종합 건강 검진표 발급 완료")
+                st.markdown(st.session_state[f"doctor_us_{selected_ticker}"])
 
 # -------------------------------------------------------------
 # TAB 3: Morning Daily Briefing (Step 2)
