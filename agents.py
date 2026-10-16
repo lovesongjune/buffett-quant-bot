@@ -2,6 +2,7 @@
 # 가상 AI 증권사: 5대 전문 부서 글로벌 멀티 에이전트 투자심의위원회
 # ==========================================================
 import json
+import time
 import requests
 from gemini_client import GeminiClient
 
@@ -196,22 +197,38 @@ def run_investment_committee(budget_val, candidates, is_bull, kospi_val, sma200,
     # 1. 매크로 시황 진단
     if progress_callback: progress_callback(1, "🌐 [1/5] 매크로 전략실: 글로벌 시황 & 환율, 200일선 진단 중...")
     macro_report = macro_agent.analyze(is_bull, kospi_val, sma200, macro_data, strategy_mode=strategy_mode)
+    time.sleep(1.2)
     
     # 2. 펀더멘털 리서치센터 분석
     if progress_callback: progress_callback(2, "📊 [2/5] 리서치센터: 포트폴리오 글로벌 해자 & 펀더멘털 분석 중...")
     equity_report = equity_agent.analyze(candidates, us_candidates=us_candidates)
+    if "[Gemini AI]" in equity_report:
+        time.sleep(2.5)
+        equity_report = equity_agent.analyze(candidates, us_candidates=us_candidates)
+    time.sleep(1.2)
     
     # 3. 리스크 검증 레드팀 (Devil's Advocate) 비판 심의
     if progress_callback: progress_callback(3, "🩸 [3/5] 리스크 레드팀: 악마의 대변인 잠재 지뢰 & 밸류 트랩 고발 중...")
     risk_report = risk_agent.challenge(candidates, equity_report, us_candidates=us_candidates)
+    if "[Gemini AI]" in risk_report:
+        time.sleep(2.5)
+        risk_report = risk_agent.challenge(candidates, equity_report, us_candidates=us_candidates)
+    time.sleep(1.2)
     
     # 4. 수급 & 테크니컬 퀀트 모멘텀 진단
     if progress_callback: progress_callback(4, "📈 [4/5] 수급·테크니컬팀: 스마트머니 자금 흐름 & 모멘텀 추적 중...")
     flow_report = flow_agent.analyze_flows(candidates, macro_data, us_candidates=us_candidates)
+    if "[Gemini AI]" in flow_report:
+        time.sleep(2.5)
+        flow_report = flow_agent.analyze_flows(candidates, macro_data, us_candidates=us_candidates)
+    time.sleep(1.2)
     
     # 5. CIO 종합 심의 및 최종 의결서 작성
     if progress_callback: progress_callback(5, "🛡️ [5/5] CIO 투자심의위원회: 4대 부서 교차 검증 및 최종 의결서 작성 중...")
     cio_memo = cio_agent.deliberate(macro_report, equity_report, risk_report, flow_report, budget_val, candidates, strategy_mode=strategy_mode)
+    if "[Gemini AI]" in cio_memo:
+        time.sleep(2.5)
+        cio_memo = cio_agent.deliberate(macro_report, equity_report, risk_report, flow_report, budget_val, candidates, strategy_mode=strategy_mode)
     
     return {
         "macro_report": macro_report,
