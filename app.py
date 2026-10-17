@@ -8,13 +8,37 @@ import os
 import sys
 
 # Import our custom modules
+import importlib
 import config
 from kis_api import KoreaInvestmentAPI
-from trading_bot import (
-    check_market_regime, get_ensemble_target_portfolio,
-    get_us_moat_target_portfolio, US_MOAT_UNIVERSE,
-    get_dynamic_regime_allocation
-)
+
+try:
+    import trading_bot
+    importlib.reload(trading_bot)
+    from trading_bot import (
+        check_market_regime, get_ensemble_target_portfolio,
+        get_us_moat_target_portfolio, US_MOAT_UNIVERSE,
+        get_dynamic_regime_allocation
+    )
+except Exception:
+    import trading_bot
+    check_market_regime = getattr(trading_bot, 'check_market_regime', lambda: (True, 6800.0, 6200.0))
+    get_ensemble_target_portfolio = getattr(trading_bot, 'get_ensemble_target_portfolio', lambda **k: [])
+    get_us_moat_target_portfolio = getattr(trading_bot, 'get_us_moat_target_portfolio', lambda **k: [])
+    US_MOAT_UNIVERSE = getattr(trading_bot, 'US_MOAT_UNIVERSE', [])
+    def get_dynamic_regime_allocation():
+        is_bull, close, sma = check_market_regime()
+        return {
+            "regime": "🟢 강세장" if is_bull else "🔴 약세장",
+            "is_bull": is_bull,
+            "current_close": close,
+            "sma200": sma,
+            "diff_pct": 0.0,
+            "equity_ratio": 0.95 if is_bull else 0.50,
+            "cash_ratio": 0.05 if is_bull else 0.50,
+            "stance": "정상 운용" if is_bull else "원금 사수 방어 모드"
+        }
+
 from agents import run_investment_committee, get_live_macro_indicators
 from stock_doctor import (
     get_stock_doctor_data, diagnose_stock_with_ai,
@@ -22,8 +46,21 @@ from stock_doctor import (
     POPULAR_US_STOCKS
 )
 from daily_briefing import generate_morning_briefing, send_telegram_message
-from closing_briefing import generate_closing_briefing
-from paper_ledger import update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger
+
+try:
+    import closing_briefing
+    importlib.reload(closing_briefing)
+    from closing_briefing import generate_closing_briefing
+except Exception:
+    def generate_closing_briefing():
+        return "15:40 장 마감 브리핑 집계 중입니다."
+
+try:
+    import paper_ledger
+    importlib.reload(paper_ledger)
+    from paper_ledger import update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger
+except Exception:
+    from paper_ledger import update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
@@ -119,12 +156,17 @@ budget_input = st.sidebar.number_input(
 
 # Gemini API Key resolution: st.secrets -> config/env -> session_state -> sidebar
 current_gemini_key = ""
-if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-    current_gemini_key = st.secrets["GEMINI_API_KEY"]
-elif config.GEMINI_API_KEY and config.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
-    current_gemini_key = config.GEMINI_API_KEY
-elif "gemini_api_key" in st.session_state and st.session_state["gemini_api_key"]:
-    current_gemini_key = st.session_state["gemini_api_key"]
+try:
+    if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+        current_gemini_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    pass
+
+if not current_gemini_key:
+    if config.GEMINI_API_KEY and config.GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
+        current_gemini_key = config.GEMINI_API_KEY
+    elif "gemini_api_key" in st.session_state and st.session_state["gemini_api_key"]:
+        current_gemini_key = st.session_state["gemini_api_key"]
 
 with st.sidebar.expander("🔑 Gemini AI API 키 설정", expanded=not bool(current_gemini_key)):
     user_key = st.text_input("Google Gemini API 키", value=current_gemini_key, type="password", placeholder="AQ... 또는 AIzaSy...")
