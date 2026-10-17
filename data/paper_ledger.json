@@ -1,0 +1,236 @@
+{
+  "initial_seed_krw": 2000000,
+  "start_date": "2026-10-01",
+  "last_updated": "2026-10-17 23:37:40",
+  "strategy": "한·미 듀얼 엔진 (50:50)",
+  "cash_krw": 340785,
+  "fx_rate_entry": 1350.0,
+  "holdings_kr": [
+    {
+      "code": "000270",
+      "name": "기아",
+      "market": "KR",
+      "shares": 1,
+      "entry_price": 106000,
+      "entry_krw": 106000
+    },
+    {
+      "code": "011200",
+      "name": "HMM",
+      "market": "KR",
+      "shares": 8,
+      "entry_price": 22500,
+      "entry_krw": 180000
+    },
+    {
+      "code": "003550",
+      "name": "LG",
+      "market": "KR",
+      "shares": 1,
+      "entry_price": 98000,
+      "entry_krw": 98000
+    },
+    {
+      "code": "272210",
+      "name": "한화시스템",
+      "market": "KR",
+      "shares": 2,
+      "entry_price": 76000,
+      "entry_krw": 152000
+    },
+    {
+      "code": "017670",
+      "name": "SK텔레콤",
+      "market": "KR",
+      "shares": 2,
+      "entry_price": 75000,
+      "entry_krw": 150000
+    }
+  ],
+  "holdings_us": [
+    {
+      "code": "NVDA",
+      "name": "엔비디아 (NVDA)",
+      "market": "US",
+      "shares": 1.1,
+      "entry_price_usd": 130.0,
+      "entry_usd": 143.0
+    },
+    {
+      "code": "AAPL",
+      "name": "애플 (AAPL)",
+      "market": "US",
+      "shares": 0.65,
+      "entry_price_usd": 225.0,
+      "entry_usd": 146.25
+    },
+    {
+      "code": "MSFT",
+      "name": "마이크로소프트 (MSFT)",
+      "market": "US",
+      "shares": 0.35,
+      "entry_price_usd": 415.0,
+      "entry_usd": 145.25
+    },
+    {
+      "code": "BRK-B",
+      "name": "버크셔 해서웨이 (BRK-B)",
+      "market": "US",
+      "shares": 0.32,
+      "entry_price_usd": 455.0,
+      "entry_usd": 145.6
+    },
+    {
+      "code": "COST",
+      "name": "코스트코 (COST)",
+      "market": "US",
+      "shares": 0.16,
+      "entry_price_usd": 880.0,
+      "entry_usd": 140.8
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-10-01",
+      "total_asset_krw": 2000000,
+      "daily_pnl_pct": 0.0,
+      "cum_return_pct": 0.0,
+      "benchmark_return_pct": 0.0
+    },
+    {
+      "date": "2026-10-08",
+      "total_asset_krw": 2041999,
+      "daily_pnl_pct": 2.1,
+      "cum_return_pct": 2.1,
+      "benchmark_return_pct": -0.8
+    },
+    {
+      "date": "2026-10-15",
+      "total_asset_krw": 2076000,
+      "daily_pnl_pct": 1.7,
+      "cum_return_pct": 3.8,
+      "benchmark_return_pct": 0.2
+    },
+    {
+      "date": "2026-10-17",
+      "total_asset_krw": 2388497,
+      "daily_pnl_pct": 15.05,
+      "cum_return_pct": 19.42,
+      "cash_krw": 340785
+    }
+  ],
+  "current_fx_rate": 1365.0,
+  "total_asset_krw": 2388497,
+  "cum_return_pct": 19.42485,
+  "kr_evaluated": [
+    {
+      "code": "000270",
+      "name": "기아",
+      "shares": 1,
+      "entry_price": 106000,
+      "current_price": 110900,
+      "current_val_krw": 110900,
+      "pnl_amt_krw": 4900,
+      "pnl_pct": 4.622641509433962
+    },
+    {
+      "code": "011200",
+      "name": "HMM",
+      "shares": 8,
+      "entry_price": 22500,
+      "current_price": 23600,
+      "current_val_krw": 188800,
+      "pnl_amt_krw": 8800,
+      "pnl_pct": 4.888888888888889
+    },
+    {
+      "code": "003550",
+      "name": "LG",
+      "shares": 1,
+      "entry_price": 98000,
+      "current_price": 102600,
+      "current_val_krw": 102600,
+      "pnl_amt_krw": 4600,
+      "pnl_pct": 4.6938775510204085
+    },
+    {
+      "code": "272210",
+      "name": "한화시스템",
+      "shares": 2,
+      "entry_price": 76000,
+      "current_price": 80500,
+      "current_val_krw": 161000,
+      "pnl_amt_krw": 9000,
+      "pnl_pct": 5.921052631578947
+    },
+    {
+      "code": "017670",
+      "name": "SK텔레콤",
+      "shares": 2,
+      "entry_price": 75000,
+      "current_price": 78500,
+      "current_val_krw": 157000,
+      "pnl_amt_krw": 7000,
+      "pnl_pct": 4.666666666666667
+    }
+  ],
+  "us_evaluated": [
+    {
+      "code": "NVDA",
+      "name": "엔비디아 (NVDA)",
+      "shares": 1.1,
+      "entry_price_usd": 130.0,
+      "current_price_usd": 214.13,
+      "current_val_usd": 235.543,
+      "current_val_krw": 321516,
+      "pnl_amt_usd": 92.543,
+      "pnl_pct": 64.71538461538462
+    },
+    {
+      "code": "AAPL",
+      "name": "애플 (AAPL)",
+      "shares": 0.65,
+      "entry_price_usd": 225.0,
+      "current_price_usd": 343.46,
+      "current_val_usd": 223.249,
+      "current_val_krw": 304734,
+      "pnl_amt_usd": 76.999,
+      "pnl_pct": 52.64888888888889
+    },
+    {
+      "code": "MSFT",
+      "name": "마이크로소프트 (MSFT)",
+      "shares": 0.35,
+      "entry_price_usd": 415.0,
+      "current_price_usd": 529.05,
+      "current_val_usd": 185.16749999999996,
+      "current_val_krw": 252753,
+      "pnl_amt_usd": 39.91749999999996,
+      "pnl_pct": 27.481927710843344
+    },
+    {
+      "code": "BRK-B",
+      "name": "버크셔 해서웨이 (BRK-B)",
+      "shares": 0.32,
+      "entry_price_usd": 455.0,
+      "current_price_usd": 532.02,
+      "current_val_usd": 170.2464,
+      "current_val_krw": 232386,
+      "pnl_amt_usd": 24.6464,
+      "pnl_pct": 16.927472527472528
+    },
+    {
+      "code": "COST",
+      "name": "코스트코 (COST)",
+      "shares": 0.16,
+      "entry_price_usd": 880.0,
+      "current_price_usd": 989.11,
+      "current_val_usd": 158.2576,
+      "current_val_krw": 216021,
+      "pnl_amt_usd": 17.457599999999985,
+      "pnl_pct": 12.398863636363625
+    }
+  ],
+  "kr_total_val": 720300,
+  "us_total_val_krw": 1327412
+}

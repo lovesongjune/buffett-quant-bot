@@ -55,6 +55,43 @@ def check_market_regime():
         print(f"[Market Check] KOSPI 지수 조회 오류: {e}")
     return True, 6800.0, 6200.0
 
+def get_dynamic_regime_allocation():
+    """
+    [개선안 2] 3단계 시장 레짐 기반 동적 자산 배분 & 현금 버퍼율 산출
+    - 강세장 (Bull 🟢): KOSPI > 200선 (+2% 이상) -> 주식 95% / 현금 5% (복리 성장 가속)
+    - 중립/횡보장 (Neutral 🟡): KOSPI 200선 근접 (±2% 이내) -> 주식 80% / 현금 20% (완충)
+    - 약세/위험장 (Bear 🔴): KOSPI < 200선 (-2% 이하) -> 주식 50% / 안전현금·달러 50% (원금 사수 방어)
+    """
+    is_bull, current_close, sma200 = check_market_regime()
+    diff_pct = ((current_close - sma200) / sma200) * 100 if sma200 > 0 else 0.0
+    
+    if diff_pct >= 2.0:
+        regime = "🟢 강세장 (Bull Market)"
+        equity_ratio = 0.95
+        cash_ratio = 0.05
+        stance = "공격적 복리 증식 모드 (주식 95% / 현금 5%)"
+    elif diff_pct >= -2.0:
+        regime = "🟡 중립/횡보장 (Neutral Market)"
+        equity_ratio = 0.80
+        cash_ratio = 0.20
+        stance = "균형 운용 모드 (주식 80% / 현금 20%)"
+    else:
+        regime = "🔴 약세/경계장 (Bear Market)"
+        equity_ratio = 0.50
+        cash_ratio = 0.50
+        stance = "원금 사수 방어 모드 (주식 50% / 안전현금·달러 50%)"
+        
+    return {
+        "regime": regime,
+        "is_bull": is_bull,
+        "current_close": current_close,
+        "sma200": sma200,
+        "diff_pct": diff_pct,
+        "equity_ratio": equity_ratio,
+        "cash_ratio": cash_ratio,
+        "stance": stance
+    }
+
 def get_ensemble_target_portfolio(max_unit_price=None, top_n=None):
     """
     올인원 버핏 앙상블 스코어링 TOP N 종목 산출
@@ -182,16 +219,18 @@ def execute_rebalance():
     print(f"  서버: {'모의투자(VTS)' if config.IS_MOCK else '실전투자'}")
     print("="*75)
 
-    # 1. 시장 국면 점검 (KOSPI 200일 이동평균선)
-    is_bull, kospi_val, sma200 = check_market_regime()
-    print(f"\n[1단계] 시장 리스크 레짐 점검")
-    if is_bull:
-        print(f"  현재 KOSPI({kospi_val:,.1f}) > 200일선({sma200:,.1f}) -> [상승장/정상 국면]")
-        cash_reserve_rate = 0.02 # 정상 현금 버퍼 2%
-    else:
-        print(f"  현재 KOSPI({kospi_val:,.1f}) < 200일선({sma200:,.1f}) -> [약세장/경계 국면]")
-        print("  -> 안전자산(현금) 30% 방어 버퍼 적용!")
-        cash_reserve_rate = 0.30 # 약세장 현금 버퍼 30%
+    # 1. 시장 국면 점검 및 동적 현금 비중 산출 (Dynamic Regime Sizing)
+    regime_info = get_dynamic_regime_allocation()
+    is_bull = regime_info["is_bull"]
+    kospi_val = regime_info["current_close"]
+    sma200 = regime_info["sma200"]
+    cash_reserve_rate = regime_info["cash_ratio"]
+    equity_rate = regime_info["equity_ratio"]
+
+    print(f"\n[1단계] 시장 리스크 레짐 점검: {regime_info['regime']}")
+    print(f"  현재 KOSPI({kospi_val:,.1f}) vs 200일선({sma200:,.1f}) [이격도: {regime_info['diff_pct']:+.1f}%]")
+    print(f"  운용 기조: {regime_info['stance']}")
+    print(f"  -> 목표 주식 비중: {equity_rate*100:.0f}% | 안전 현금 버퍼: {cash_reserve_rate*100:.0f}%")
 
     # 2. 계좌 잔고 및 보유 종목 조회
     api = KoreaInvestmentAPI()
