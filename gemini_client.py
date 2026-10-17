@@ -5,7 +5,7 @@ import time
 import config
 
 class GeminiClient:
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, max_retries=3, timeout=35):
         if not api_key:
             try:
                 import streamlit as st
@@ -16,11 +16,14 @@ class GeminiClient:
             except Exception:
                 pass
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or config.GEMINI_API_KEY
+        self.max_retries = max_retries
+        self.timeout = timeout
         # Priority list: fast lite model first, robust fallback
         self.models = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
         
-    def generate(self, prompt, system_instruction=None, max_output_tokens=2500, max_retries=3):
+    def generate(self, prompt, system_instruction=None, max_output_tokens=2500, max_retries=None):
         """Gemini 모델을 호출하여 분석 보고서를 생성합니다."""
+        retries = max_retries if max_retries is not None else self.max_retries
         if not self.api_key or self.api_key == "YOUR_GEMINI_API_KEY_HERE":
             return "[Gemini AI] API 키가 설정되지 않았습니다. .env 또는 설정에서 키를 등록해주세요."
 
@@ -53,9 +56,9 @@ class GeminiClient:
         last_error = ""
         for model_name in self.models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
-            for attempt in range(max_retries):
+            for attempt in range(retries):
                 try:
-                    resp = requests.post(url, headers=headers, json=payload, timeout=35)
+                    resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
@@ -81,3 +84,7 @@ class GeminiClient:
                     continue
 
         return f"[Gemini AI] 서버 통신 중 일시적인 지연이 발생했습니다. ({last_error}) 잠시 후 다시 시도해주세요."
+
+    def generate_text(self, prompt, **kwargs):
+        """호환성을 위한 generate의 alias 메소드"""
+        return self.generate(prompt, **kwargs)

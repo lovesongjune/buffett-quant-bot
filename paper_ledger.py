@@ -3,9 +3,11 @@
 # ==========================================================
 import os
 import json
+import time
 import datetime
 import requests
 import pandas as pd
+import concurrent.futures
 from kis_api import KoreaInvestmentAPI
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -95,19 +97,72 @@ def save_paper_ledger(ledger: dict):
     with open(LEDGER_FILE, 'w', encoding='utf-8') as f:
         json.dump(ledger, f, ensure_ascii=False, indent=2)
 
+_PRICE_CACHE = {}
+_KR_CACHE = {}
+_FX_CACHE = {"rate": 1365.0, "time": 0.0}
+
 def get_live_usd_price(ticker: str) -> float:
-    """야후 파이낸스를 통해 미국 주식 실시간가 조회"""
+    """야후 파이낸스를 통해 미국 주식 실시간가 조회 (15초 인메모리 캐시 적용)"""
+    now = time.time()
+    if ticker in _PRICE_CACHE and (now - _PRICE_CACHE[ticker]["time"] < 15.0):
+        return _PRICE_CACHE[ticker]["price"]
+
     headers = {'User-Agent': 'Mozilla/5.0'}
     fallback_prices = {"NVDA": 138.0, "AAPL": 235.0, "MSFT": 430.0, "BRK-B": 470.0, "COST": 920.0}
+    price = fallback_prices.get(ticker, 150.0)
     try:
         url = f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d'
         r = requests.get(url, headers=headers, timeout=2.0).json()
-        price = r['chart']['result'][0]['meta'].get('regularMarketPrice')
-        if price and float(price) > 0:
-            return float(price)
+        live_p = r['chart']['result'][0]['meta'].get('regularMarketPrice')
+        if live_p and float(live_p) > 0:
+            price = float(live_p)
     except Exception:
         pass
-    return fallback_prices.get(ticker, 150.0)
+
+    _PRICE_CACHE[ticker] = {"price": price, "time": now}
+    return price
+
+def get_live_kr_price(code: str, api=None) -> int:
+    """한국 주식 실시간가 조회 (15초 인메모리 캐시 적용)"""
+    now = time.time()
+    if code in _KR_CACHE and (now - _KR_CACHE[code]["time"] < 15.0):
+        return _KR_CACHE[code]["price"]
+
+    cur_p = None
+    if api:
+        cur_p = api.get_current_price(code)
+    if not cur_p or cur_p <= 0:
+        try:
+            url = f"https://m.stock.naver.com/api/stock/{code}/integration"
+            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=2.0).json()
+            dt_info = r.get('dealTrendInfos', [])
+            if dt_info and 'closePrice' in dt_info[0]:
+                cur_p = int(dt_info[0]['closePrice'].replace(',', ''))
+        except Exception:
+            pass
+    if not cur_p or cur_p <= 0:
+        cur_p = 50000
+
+    _KR_CACHE[code] = {"price": cur_p, "time": now}
+    return cur_p
+
+def get_live_fx_rate() -> float:
+    """원/달러 환율 실시간 조회 (15초 인메모리 캐시 적용)"""
+    now = time.time()
+    if (now - _FX_CACHE["time"] < 15.0):
+        return _FX_CACHE["rate"]
+
+    fx_rate = 1365.0
+    try:
+        r = requests.get('https://m.stock.naver.com/api/index/FX_USDKRW/basic', headers={'User-Agent': 'Mozilla/5.0'}, timeout=2).json()
+        if 'closePrice' in r:
+            fx_rate = float(str(r['closePrice']).replace(',', ''))
+    except Exception:
+        pass
+
+    _FX_CACHE["rate"] = fx_rate
+    _FX_CACHE["time"] = now
+    return fx_rate
 
 def update_paper_ledger_market_values(api=None) -> dict:
     """
@@ -117,32 +172,23 @@ def update_paper_ledger_market_values(api=None) -> dict:
     if api is None:
         api = KoreaInvestmentAPI(dry_run=True)
 
-    # 1. 환율 조회
-    fx_rate = 1365.0
-    try:
-        r = requests.get('https://m.stock.naver.com/api/index/FX_USDKRW/basic', headers={'User-Agent': 'Mozilla/5.0'}, timeout=2).json()
-        if 'closePrice' in r:
-            fx_rate = float(str(r['closePrice']).replace(',', ''))
-    except Exception:
-        pass
+    # 1. 환율 조회 (캐시 적용)
+    fx_rate = get_live_fx_rate()
 
-    # 2. 한국 종목 평가
-    kr_total_val = 0
-    kr_evaluated = []
-    for h in ledger.get("holdings_kr", []):
+    # 2. 한국 및 미국 종목 병렬 평가 (Parallel Multi-threading for sub-second speed)
+    def eval_single_kr(h):
         code = h["code"]
         shares = h["shares"]
         entry_price = h["entry_price"]
-        cur_price = api.get_current_price(code)
+        cur_price = get_live_kr_price(code, api)
         if not cur_price or cur_price <= 0:
             cur_price = entry_price
         
         cur_val = cur_price * shares
-        kr_total_val += cur_val
         pnl_amt = cur_val - (entry_price * shares)
         pnl_pct = (pnl_amt / (entry_price * shares)) * 100 if entry_price > 0 else 0.0
 
-        kr_evaluated.append({
+        return {
             "code": code,
             "name": h["name"],
             "shares": shares,
@@ -151,24 +197,20 @@ def update_paper_ledger_market_values(api=None) -> dict:
             "current_val_krw": cur_val,
             "pnl_amt_krw": pnl_amt,
             "pnl_pct": pnl_pct
-        })
+        }
 
-    # 3. 미국 종목 평가
-    us_total_val_usd = 0
-    us_evaluated = []
-    for h in ledger.get("holdings_us", []):
+    def eval_single_us(h):
         ticker = h["code"]
         shares = h["shares"]
         entry_price_usd = h["entry_price_usd"]
         cur_price_usd = get_live_usd_price(ticker)
         
         cur_val_usd = cur_price_usd * shares
-        us_total_val_usd += cur_val_usd
         pnl_amt_usd = cur_val_usd - (entry_price_usd * shares)
         pnl_pct = (pnl_amt_usd / (entry_price_usd * shares)) * 100 if entry_price_usd > 0 else 0.0
         cur_val_krw = int(cur_val_usd * fx_rate)
 
-        us_evaluated.append({
+        return {
             "code": ticker,
             "name": h["name"],
             "shares": shares,
@@ -178,7 +220,16 @@ def update_paper_ledger_market_values(api=None) -> dict:
             "current_val_krw": cur_val_krw,
             "pnl_amt_usd": pnl_amt_usd,
             "pnl_pct": pnl_pct
-        })
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        kr_futures = [executor.submit(eval_single_kr, h) for h in ledger.get("holdings_kr", [])]
+        us_futures = [executor.submit(eval_single_us, h) for h in ledger.get("holdings_us", [])]
+        kr_evaluated = [f.result() for f in kr_futures]
+        us_evaluated = [f.result() for f in us_futures]
+
+    kr_total_val = sum(x["current_val_krw"] for x in kr_evaluated)
+    us_total_val_usd = sum(x["current_val_usd"] for x in us_evaluated)
 
     us_total_val_krw = int(us_total_val_usd * fx_rate)
     cash_krw = ledger.get("cash_krw", 340000)

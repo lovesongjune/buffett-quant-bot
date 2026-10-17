@@ -8,6 +8,8 @@ import time
 from datetime import datetime, timedelta
 import config
 
+_KIS_PRICE_CACHE = {}
+
 class KoreaInvestmentAPI:
     def __init__(self, is_mock=config.IS_MOCK, dry_run=config.DRY_RUN):
         self.is_mock = is_mock
@@ -163,7 +165,12 @@ class KoreaInvestmentAPI:
             return None
 
     def get_current_price(self, code):
-        """개별 종목 현재가 조회"""
+        """개별 종목 현재가 조회 (15초 인메모리 캐시 적용)"""
+        now = time.time()
+        if code in _KIS_PRICE_CACHE and (now - _KIS_PRICE_CACHE[code]["time"] < 15.0):
+            return _KIS_PRICE_CACHE[code]["price"]
+
+        price = None
         if self.dry_run:
             try:
                 url = f"https://m.stock.naver.com/api/stock/{code}/integration"
@@ -171,20 +178,24 @@ class KoreaInvestmentAPI:
                 if r.status_code == 200:
                     dt_info = r.json().get('dealTrendInfos', [])
                     if dt_info and 'closePrice' in dt_info[0]:
-                        return int(dt_info[0]['closePrice'].replace(',', ''))
+                        price = int(dt_info[0]['closePrice'].replace(',', ''))
             except Exception:
                 pass
-            try:
-                import pandas as pd
-                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                prices_path = os.path.join(BASE_DIR, 'data', 'prices_top100.csv')
-                if os.path.exists(prices_path):
-                    df = pd.read_csv(prices_path, index_col=0)
-                    if code in df.columns:
-                        return int(df[code].dropna().iloc[-1])
-            except Exception:
-                pass
-            return 50000
+            if price is None:
+                try:
+                    import pandas as pd
+                    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+                    prices_path = os.path.join(BASE_DIR, 'data', 'prices_top100.csv')
+                    if os.path.exists(prices_path):
+                        df = pd.read_csv(prices_path, index_col=0)
+                        if code in df.columns:
+                            price = int(df[code].dropna().iloc[-1])
+                except Exception:
+                    pass
+            if price is None or price <= 0:
+                price = 50000
+            _KIS_PRICE_CACHE[code] = {"price": price, "time": now}
+            return price
 
         tr_id = "FHKST01010100"
         url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
