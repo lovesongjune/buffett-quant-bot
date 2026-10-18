@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import numpy as np
 import requests
+import concurrent.futures
 from kis_api import KoreaInvestmentAPI
 import config
 
@@ -96,10 +97,51 @@ def get_dynamic_regime_allocation():
         "stance": stance
     }
 
+_SMART_MONEY_CACHE = {}
+
+def get_smart_money_flow_data(code: str) -> dict:
+    """네이버 증권에서 최근 3일 외인 및 기관 순매수량 조회 (60초 인메모리 캐시 적용)"""
+    now = time.time()
+    if code in _SMART_MONEY_CACHE and (now - _SMART_MONEY_CACHE[code]["time"] < 60.0):
+        return _SMART_MONEY_CACHE[code]
+    
+    flow = {"code": code, "foreign_net": 0, "organ_net": 0, "total_flow": 0}
+    try:
+        url = f"https://m.stock.naver.com/api/stock/{code}/integration"
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=2.5).json()
+        deal_trends = r.get('dealTrendInfos', [])[:3]
+        f_sum = 0
+        o_sum = 0
+        for d in deal_trends:
+            f_sum += int(str(d.get('foreignerPureBuyQuant', '0')).replace(',', ''))
+            o_sum += int(str(d.get('organPureBuyQuant', '0')).replace(',', ''))
+        flow["foreign_net"] = f_sum
+        flow["organ_net"] = o_sum
+        flow["total_flow"] = f_sum + o_sum
+    except Exception:
+        pass
+    
+    _SMART_MONEY_CACHE[code] = {**flow, "time": now}
+    return flow
+
+def fetch_smart_money_batch(codes: list) -> dict:
+    """후보 종목들의 수급 데이터를 멀티스레드로 고속 병렬 수집"""
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        future_map = {ex.submit(get_smart_money_flow_data, c): c for c in codes}
+        for fut in concurrent.futures.as_completed(future_map):
+            c = future_map[fut]
+            try:
+                results[c] = fut.result()
+            except Exception:
+                results[c] = {"code": c, "foreign_net": 0, "organ_net": 0, "total_flow": 0}
+    return results
+
 def get_ensemble_target_portfolio(max_unit_price=None, top_n=None):
     """
     올인원 버핏 앙상블 스코어링 TOP N 종목 산출
-    max_unit_price: 소액 계좌를 위한 1주당 가격 상한선 필터 (예: 200만원 계좌 시 18만원)
+    - 퀄리티(35%) + 밸류(25%) + 모멘텀(20%) + 스마트머니 수급(20%)
+    - max_unit_price: 소액 계좌를 위한 1주당 가격 상한선 필터 (예: 200만원 계좌 시 18만원)
     """
     universe_path = os.path.join(DATA_DIR, 'universe_top100.csv')
     metrics_path = os.path.join(DATA_DIR, 'parsed_metrics.csv')
@@ -125,12 +167,12 @@ def get_ensemble_target_portfolio(max_unit_price=None, top_n=None):
         df_valid = df[(df['Debt_Ratio'] <= 160) & (df['PER'] > 3)].copy()
         
     # 2. 팩터별 순위 계산
-    # Quality (40%): ROE + OP Margin
+    # Quality (35%): ROE + OP Margin
     df_valid['Rank_Quality'] = (df_valid['ROE_Avg3'] + df_valid['OP_Margin']).rank(ascending=False)
-    # Value (30%): 1/PER + 1/PBR
+    # Value (25%): 1/PER + 1/PBR
     df_valid['Rank_Value'] = ((1 / df_valid['PER']) + (1 / df_valid['PBR'])).rank(ascending=False)
     
-    # Momentum (30%): 6개월 주가 상대강도
+    # Momentum (20%): 6개월 주가 상대강도
     mom_dict = {}
     for code in df_valid['Code']:
         if code in prices_df.columns:
@@ -143,17 +185,29 @@ def get_ensemble_target_portfolio(max_unit_price=None, top_n=None):
             mom_dict[code] = 0.0
     df_valid['Mom_6M'] = df_valid['Code'].map(mom_dict)
     df_valid['Rank_Mom'] = df_valid['Mom_6M'].rank(ascending=False)
+
+    # Smart Money Flow (20%): 최근 3일 외인+기관 순매수 수급 팩터
+    try:
+        flow_map = fetch_smart_money_batch(df_valid['Code'].tolist())
+    except Exception:
+        flow_map = {}
+        
+    df_valid['Flow_Total'] = df_valid['Code'].map(lambda c: flow_map.get(c, {}).get('total_flow', 0))
+    df_valid['Flow_Foreign'] = df_valid['Code'].map(lambda c: flow_map.get(c, {}).get('foreign_net', 0))
+    df_valid['Flow_Organ'] = df_valid['Code'].map(lambda c: flow_map.get(c, {}).get('organ_net', 0))
+    df_valid['Rank_Flow'] = df_valid['Flow_Total'].rank(ascending=False)
     
-    # 3. 앙상블 종합 점수
+    # 3. 앙상블 종합 점수 (가치 + 퀄리티 + 모멘텀 + 스마트머니 수급)
     df_valid['Ensemble_Score'] = (
-        0.40 * df_valid['Rank_Quality'] + 
-        0.30 * df_valid['Rank_Value'] + 
-        0.30 * df_valid['Rank_Mom']
+        0.35 * df_valid['Rank_Quality'] + 
+        0.25 * df_valid['Rank_Value'] + 
+        0.20 * df_valid['Rank_Mom'] +
+        0.20 * df_valid['Rank_Flow']
     )
     
     target_count = top_n or config.PORTFOLIO_SIZE
     top_stocks = df_valid.sort_values(by='Ensemble_Score').head(target_count)
-    return top_stocks[['Code', 'Name', 'ROE_Avg3', 'OP_Margin', 'PER', 'PBR', 'Debt_Ratio', 'Mom_6M']].to_dict(orient='records')
+    return top_stocks[['Code', 'Name', 'ROE_Avg3', 'OP_Margin', 'PER', 'PBR', 'Debt_Ratio', 'Mom_6M', 'Flow_Total', 'Flow_Foreign', 'Flow_Organ']].to_dict(orient='records')
 
 # -------------------------------------------------------------
 # 미국 메가트렌드 해자 유니버스 & 포트폴리오

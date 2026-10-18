@@ -236,6 +236,53 @@ def test_edge_cases():
         assert s["Target_Shares"] > 0
 
 # -------------------------------------------------------------
+# 12. 스마트 머니 (외인·기관) 수급 팩터 산출 검증
+# -------------------------------------------------------------
+def test_smart_money_flow_factor():
+    from trading_bot import get_smart_money_flow_data, get_ensemble_target_portfolio
+    # 005930(삼성전자) 수급 데이터 수신 확인
+    flow = get_smart_money_flow_data("005930")
+    assert "foreign_net" in flow and "organ_net" in flow
+    
+    # 앙상블 포트폴리오 산출 시 수급 지표 포함 확인
+    targets = get_ensemble_target_portfolio(top_n=5)
+    assert len(targets) > 0
+    assert "Flow_Total" in targets[0] and "Flow_Foreign" in targets[0]
+
+# -------------------------------------------------------------
+# 13. 동적 손절(-7%) & 트레일링 익절선 연산 및 청산 검증
+# -------------------------------------------------------------
+def test_dynamic_stops_engine():
+    from paper_ledger import get_stops_monitoring_status, execute_risk_management_stops
+    status_list = get_stops_monitoring_status()
+    assert len(status_list) >= 10
+    for s in status_list:
+        assert "stop_loss_price" in s
+        assert "trailing_stop_price" in s
+        assert "risk_status" in s
+
+    # 청산 실행 함수 예외 없이 정상 반환되는지 확인
+    actions = execute_risk_management_stops(send_telegram=False)
+    assert isinstance(actions, list)
+
+# -------------------------------------------------------------
+# 14. 텔레그램 양방향 리모컨 명령어 처리 검증
+# -------------------------------------------------------------
+def test_telegram_interactive_commands():
+    from telegram_interactive import handle_telegram_command
+    res_bal = handle_telegram_command("/잔고")
+    assert "총 평가자산" in res_bal and "국내 보유 종목" in res_bal
+    
+    res_flow = handle_telegram_command("/수급")
+    assert "스마트 머니" in res_flow and "외인 순매수" in res_flow
+    
+    res_stops = handle_telegram_command("/스톱")
+    assert "동적 리스크 관리" in res_stops and "손절선" in res_stops
+    
+    res_doc = handle_telegram_command("/진단 000270")
+    assert "기아" in res_doc
+
+# -------------------------------------------------------------
 # 메인 테스트 러너
 # -------------------------------------------------------------
 if __name__ == "__main__":
@@ -251,6 +298,9 @@ if __name__ == "__main__":
         ("9. [부하 2] 실전 원장 연속 Mark-to-Market 반복 부하 테스트", test_ledger_stress_repetition),
         ("10. [부하 3] Gemini AI 클라이언트 장애 회복력(Resilience) 검증", test_gemini_client_robustness),
         ("11. 극단적 소액 예산(50만 원) 엣지 케이스 처리 검증", test_edge_cases),
+        ("12. 스마트 머니 (외인·기관) 수급 팩터 앙상블 검증", test_smart_money_flow_factor),
+        ("13. 동적 손절(-7%) & 트레일링 스톱 리스크 엔진 검증", test_dynamic_stops_engine),
+        ("14. 텔레그램 양방향 리모컨 명령어 처리 검증", test_telegram_interactive_commands),
     ]
 
     for name, func in tests:

@@ -246,3 +246,7 @@ def diagnose_us_stock_with_ai(stock_data: dict, api_key=None) -> str:
 워렌 버핏과 찰리 멍거의 가치투자 원칙에 입각하여, 과장된 기술주 거품을 경계하고 진짜 지속 가능한 해자를 지닌 기업인지 냉정하게 검증합니다."""
 
     return client.generate(prompt, system_instruction=system_instruction, max_output_tokens=3000)
+
+# Alias for consistent naming
+get_us_stock_doctor_data = get_us_stock_data
+

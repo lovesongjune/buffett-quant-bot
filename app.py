@@ -58,9 +58,23 @@ except Exception:
 try:
     import paper_ledger
     importlib.reload(paper_ledger)
-    from paper_ledger import update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger
+    from paper_ledger import (
+        update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger,
+        get_stops_monitoring_status, execute_risk_management_stops
+    )
 except Exception:
+    import paper_ledger
     from paper_ledger import update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger
+    get_stops_monitoring_status = getattr(paper_ledger, 'get_stops_monitoring_status', lambda **k: [])
+    execute_risk_management_stops = getattr(paper_ledger, 'execute_risk_management_stops', lambda **k: [])
+
+try:
+    import telegram_interactive
+    importlib.reload(telegram_interactive)
+    from telegram_interactive import handle_telegram_command, process_telegram_updates
+except Exception:
+    handle_telegram_command = lambda cmd: f"명령어 처리: {cmd}"
+    process_telegram_updates = lambda **k: []
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
@@ -519,8 +533,38 @@ with tab_briefing:
                 else:
                     st.warning(f"⚠️ {res_tele2['message']}")
                     st.info("텔레그램 자동 발송을 위해 사이드바 또는 Secrets에 토큰을 설정해주세요.")
-        with col_c_cfg:
-            st.caption("⏰ **자동 발송 일정**: 매주 월~금 오후 15:40 KST (외인/기관 최종 수급 집계 즉시)")
+    st.markdown("---")
+    st.markdown("### 📱 텔레그램 양방향 리모컨 실시간 관제 센터")
+    st.caption("스마트폰 텔레그램에서 전송한 명령어를 수신 처리하거나, 웹 브라우저에서 직접 명령어를 시뮬레이션 테스트할 수 있습니다.")
+    
+    col_cmd_in, col_cmd_run = st.columns([3, 1])
+    with col_cmd_in:
+        sample_cmd = st.selectbox(
+            "실행할 텔레그램 명령어 선택 (또는 직접 입력)",
+            ["/잔고", "/수급", "/스톱", "/시장", "/리밸런싱", "/진단 005930", "/진단 NVDA", "/도움말"]
+        )
+    with col_cmd_run:
+        st.write("")
+        st.write("")
+        run_cmd_btn = st.button("🚀 명령어 시뮬레이션 실행")
+
+    if run_cmd_btn:
+        cmd_result = handle_telegram_command(sample_cmd)
+        st.markdown("##### 📩 봇 답장 결과:")
+        st.code(cmd_result, language="markdown")
+
+    col_poll_btn, col_poll_desc = st.columns([1, 2])
+    with col_poll_btn:
+        if st.button("📥 스마트폰 텔레그램 수신함 지금 확인 (Process Inbox)"):
+            updates = process_telegram_updates(single_run=True)
+            if updates:
+                st.success(f"✅ {len(updates)}개의 스마트폰 사용자 명령어를 정상 처리하고 답장했습니다!")
+                for u in updates:
+                    st.write(f"- 수신: `{u['cmd']}` ➔ 처리 완료")
+            else:
+                st.info("ℹ️ 현재 대기 중인 새로운 텔레그램 메시지가 없습니다.")
+    with col_poll_desc:
+        st.caption("💡 스마트폰 텔레그램 채팅창에 `/잔고`, `/수급`, `/스톱`을 입력하시면 언제든 손안에서 AI 봇이 실시간으로 답장을 전송합니다.")
 
     st.markdown("---")
     with st.expander("⚙️ 텔레그램 봇 1분 무료 연동 설정 가이드"):
@@ -699,6 +743,39 @@ with tab_portfolio:
                 st.dataframe(us_disp, use_container_width=True, hide_index=True)
                 st.caption(f"🇺🇸 미국 주식 평가 합계: **{ledger_data['us_total_val_krw']:,}원**")
 
+    # ---------------------------------------------------------
+    # 동적 리스크 관리 & 트레일링 스톱(Trailing Stop) 실시간 관제판
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🛡️ 동적 리스크 관리 & 트레일링 스톱(Trailing Stop) 실시간 관제판")
+    st.caption("수학적 기대값($E[R]$) 극대화: 개별 손절선(-7%)으로 하방 손실을 제한하고, +10% 이상 수익 시 고점 대비 -8% 반락할 때 이익을 확정 보존합니다.")
+
+    stops_data = get_stops_monitoring_status(api=api)
+    if stops_data:
+        stops_df = pd.DataFrame(stops_data)
+        col_st_disp = stops_df.rename(columns={
+            "name": "종목명", "market": "시장", "entry_price": "매수가",
+            "current_price": "현재가", "highest_price": "최고가",
+            "pnl_pct": "수익률(%)", "stop_loss_price": "손절기준가(-7%)",
+            "trailing_stop_price": "트레일링 익절선(고점-8%)", "risk_status": "현재 상태"
+        })[["종목명", "시장", "매수가", "현재가", "최고가", "수익률(%)", "손절기준가(-7%)", "트레일링 익절선(고점-8%)", "현재 상태"]]
+        col_st_disp["수익률(%)"] = col_st_disp["수익률(%)"].apply(lambda x: f"{x:+.2f}%")
+        st.dataframe(col_st_disp, use_container_width=True, hide_index=True)
+
+        col_exec_stop, col_stop_info = st.columns([1, 2])
+        with col_exec_stop:
+            if st.button("⚡ 리스크 스톱 조건 감시 및 자동 청산 실행", type="secondary"):
+                actions = execute_risk_management_stops(api=api)
+                if actions:
+                    st.warning(f"🚨 {len(actions)}개 종목 청산 집행 완료! 예수금으로 전환되었습니다.")
+                    for act in actions:
+                        st.write(f"- {act['desc']}")
+                    st.rerun()
+                else:
+                    st.success("✅ 모든 종목이 안전 범위 내에 있습니다. (손절/익절 반락 종목 없음)")
+        with col_stop_info:
+            st.info("💡 텔레그램 스마트폰 채팅창에 `/스톱`을 입력하시면 언제든 이 화면을 손안에서 확인하실 수 있습니다.")
+
     st.markdown("---")
     st.markdown("### 🎯 다음 분기 목표 리밸런싱 포트폴리오 계획")
 
@@ -718,13 +795,17 @@ with tab_portfolio:
                 qty = int(kr_alloc_per_stock // price) if price > 0 else 0
                 subtotal = qty * price
                 kr_total += subtotal
+                f_flow = s.get('Flow_Foreign', 0)
+                o_flow = s.get('Flow_Organ', 0)
                 kr_table.append({
                     "종목명": s["Name"],
                     "코드": code,
                     "현재가": f"{price:,}원",
                     "목표수량": f"{qty}주",
                     "예상 매수액": f"{subtotal:,}원",
-                    "3년 ROE": f"{s['ROE_Avg3']:.1f}%"
+                    "3년 ROE": f"{s['ROE_Avg3']:.1f}%",
+                    "외인 3일": f"{f_flow:+,}주",
+                    "기관 3일": f"{o_flow:+,}주"
                 })
             st.dataframe(pd.DataFrame(kr_table), use_container_width=True, hide_index=True)
             st.caption(f"💰 한국 주식 합계: **{kr_total:,}원** (잔여 현금: {kr_budget - kr_total:,}원)")

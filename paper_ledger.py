@@ -9,6 +9,7 @@ import requests
 import pandas as pd
 import concurrent.futures
 from kis_api import KoreaInvestmentAPI
+import config
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
@@ -184,19 +185,46 @@ def update_paper_ledger_market_values(api=None) -> dict:
         if not cur_price or cur_price <= 0:
             cur_price = entry_price
         
+        # 고점 추적 (Trailing High)
+        highest_price = max(h.get("highest_price", entry_price), cur_price)
+        h["highest_price"] = highest_price
+        
         cur_val = cur_price * shares
         pnl_amt = cur_val - (entry_price * shares)
         pnl_pct = (pnl_amt / (entry_price * shares)) * 100 if entry_price > 0 else 0.0
+        
+        # 고점 대비 하락률 (Drawdown from High)
+        dd_from_high = ((cur_price - highest_price) / highest_price) * 100 if highest_price > 0 else 0.0
+        
+        # 리스크 관리 조건 감지: -7% 손절 또는 +10% 이상 수익 후 고점 대비 -8% 반락 시 트레일링 익절
+        stop_loss_triggered = (pnl_pct <= -7.0)
+        trailing_stop_triggered = (highest_price >= entry_price * 1.10) and (dd_from_high <= -8.0)
+        
+        if stop_loss_triggered:
+            risk_status = "🔴 손절선 도달 (-7% 청산)"
+        elif trailing_stop_triggered:
+            risk_status = "🟡 트레일링 익절 발동 (고점 -8% 반락 이익보존)"
+        elif highest_price >= entry_price * 1.10:
+            risk_status = f"🟢 트레일링 감시 중 (고점대비 {dd_from_high:.1f}%)"
+        else:
+            risk_status = f"🔵 정상 보유 (수익률 {pnl_pct:+.1f}%)"
 
         return {
             "code": code,
             "name": h["name"],
             "shares": shares,
             "entry_price": entry_price,
+            "highest_price": highest_price,
             "current_price": cur_price,
             "current_val_krw": cur_val,
             "pnl_amt_krw": pnl_amt,
-            "pnl_pct": pnl_pct
+            "pnl_pct": pnl_pct,
+            "dd_from_high": dd_from_high,
+            "stop_loss_price": int(entry_price * 0.93),
+            "trailing_stop_price": int(highest_price * 0.92) if highest_price >= entry_price * 1.10 else None,
+            "risk_status": risk_status,
+            "stop_loss_triggered": stop_loss_triggered,
+            "trailing_stop_triggered": trailing_stop_triggered
         }
 
     def eval_single_us(h):
@@ -205,21 +233,44 @@ def update_paper_ledger_market_values(api=None) -> dict:
         entry_price_usd = h["entry_price_usd"]
         cur_price_usd = get_live_usd_price(ticker)
         
+        highest_price_usd = max(h.get("highest_price_usd", entry_price_usd), cur_price_usd)
+        h["highest_price_usd"] = highest_price_usd
+        
         cur_val_usd = cur_price_usd * shares
         pnl_amt_usd = cur_val_usd - (entry_price_usd * shares)
         pnl_pct = (pnl_amt_usd / (entry_price_usd * shares)) * 100 if entry_price_usd > 0 else 0.0
         cur_val_krw = int(cur_val_usd * fx_rate)
+
+        dd_from_high = ((cur_price_usd - highest_price_usd) / highest_price_usd) * 100 if highest_price_usd > 0 else 0.0
+        stop_loss_triggered = (pnl_pct <= -7.0)
+        trailing_stop_triggered = (highest_price_usd >= entry_price_usd * 1.10) and (dd_from_high <= -8.0)
+
+        if stop_loss_triggered:
+            risk_status = "🔴 손절선 도달 (-7% 청산)"
+        elif trailing_stop_triggered:
+            risk_status = "🟡 트레일링 익절 발동 (고점 -8% 반락 이익보존)"
+        elif highest_price_usd >= entry_price_usd * 1.10:
+            risk_status = f"🟢 트레일링 감시 중 (고점대비 {dd_from_high:.1f}%)"
+        else:
+            risk_status = f"🔵 정상 보유 (수익률 {pnl_pct:+.1f}%)"
 
         return {
             "code": ticker,
             "name": h["name"],
             "shares": shares,
             "entry_price_usd": entry_price_usd,
+            "highest_price_usd": highest_price_usd,
             "current_price_usd": cur_price_usd,
             "current_val_usd": cur_val_usd,
             "current_val_krw": cur_val_krw,
             "pnl_amt_usd": pnl_amt_usd,
-            "pnl_pct": pnl_pct
+            "pnl_pct": pnl_pct,
+            "dd_from_high": dd_from_high,
+            "stop_loss_price_usd": round(entry_price_usd * 0.93, 2),
+            "trailing_stop_price_usd": round(highest_price_usd * 0.92, 2) if highest_price_usd >= entry_price_usd * 1.10 else None,
+            "risk_status": risk_status,
+            "stop_loss_triggered": stop_loss_triggered,
+            "trailing_stop_triggered": trailing_stop_triggered
         }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -286,3 +337,151 @@ def record_daily_snapshot():
     ledger["history"] = history[-365:] # 최근 1년 보관
     save_paper_ledger(ledger)
     return summary
+
+def get_stops_monitoring_status(api=None) -> list:
+    """
+    모든 국내/미국 보유 종목의 손절선(-7%) 및 트레일링 익절선(+10% 후 고점 -8%) 대비 현재 위치를 정밀 진단
+    """
+    eval_res = update_paper_ledger_market_values(api=api)
+    status_list = []
+    
+    for item in eval_res.get("kr_evaluated", []):
+        entry = item["entry_price"]
+        cur = item["current_price"]
+        highest = item["highest_price"]
+        sl_price = item["stop_loss_price"]
+        tp_price = item["trailing_stop_price"]
+        
+        status_list.append({
+            "market": "KR",
+            "code": item["code"],
+            "name": item["name"],
+            "shares": item["shares"],
+            "entry_price": f"{entry:,}원",
+            "current_price": f"{cur:,}원",
+            "highest_price": f"{highest:,}원",
+            "pnl_pct": item["pnl_pct"],
+            "dd_from_high": item["dd_from_high"],
+            "stop_loss_price": f"{sl_price:,}원",
+            "trailing_stop_price": f"{tp_price:,}원" if tp_price else "비활성 (+10% 돌파 시 작동)",
+            "risk_status": item["risk_status"],
+            "triggered": item["stop_loss_triggered"] or item["trailing_stop_triggered"]
+        })
+        
+    for item in eval_res.get("us_evaluated", []):
+        entry = item["entry_price_usd"]
+        cur = item["current_price_usd"]
+        highest = item["highest_price_usd"]
+        sl_price = item["stop_loss_price_usd"]
+        tp_price = item["trailing_stop_price_usd"]
+        
+        status_list.append({
+            "market": "US",
+            "code": item["code"],
+            "name": item["name"],
+            "shares": item["shares"],
+            "entry_price": f"${entry:.2f}",
+            "current_price": f"${cur:.2f}",
+            "highest_price": f"${highest:.2f}",
+            "pnl_pct": item["pnl_pct"],
+            "dd_from_high": item["dd_from_high"],
+            "stop_loss_price": f"${sl_price:.2f}",
+            "trailing_stop_price": f"${tp_price:.2f}" if tp_price else "비활성 (+10% 돌파 시 작동)",
+            "risk_status": item["risk_status"],
+            "triggered": item["stop_loss_triggered"] or item["trailing_stop_triggered"]
+        })
+        
+    return status_list
+
+def execute_risk_management_stops(api=None, send_telegram=True) -> list:
+    """
+    손절(-7%) 또는 트레일링 익절(고점 대비 -8% 반락)에 도달한 종목을 자동 청산하고 안전 현금으로 전환
+    """
+    ledger = load_paper_ledger()
+    eval_res = update_paper_ledger_market_values(api=api)
+    
+    actions_taken = []
+    new_kr_holdings = []
+    cash_addition_krw = 0
+    
+    kr_eval_map = {x["code"]: x for x in eval_res.get("kr_evaluated", [])}
+    for h in ledger.get("holdings_kr", []):
+        code = h["code"]
+        ev = kr_eval_map.get(code)
+        if ev and (ev.get("stop_loss_triggered") or ev.get("trailing_stop_triggered")):
+            reason = "손절(-7% 청산)" if ev.get("stop_loss_triggered") else "트레일링 익절(고점 반락 -8%)"
+            proceeds = ev["current_val_krw"]
+            cash_addition_krw += proceeds
+            action_desc = f"[국내 {reason}] {ev['name']}({code}): {ev['shares']}주 전량 청산 ({proceeds:,}원 회수, 수익률: {ev['pnl_pct']:+.1f}%)"
+            actions_taken.append({
+                "market": "KR",
+                "code": code,
+                "name": ev["name"],
+                "reason": reason,
+                "pnl_pct": ev["pnl_pct"],
+                "proceeds_krw": proceeds,
+                "desc": action_desc
+            })
+        else:
+            new_kr_holdings.append(h)
+            
+    new_us_holdings = []
+    us_eval_map = {x["code"]: x for x in eval_res.get("us_evaluated", [])}
+    for h in ledger.get("holdings_us", []):
+        ticker = h["code"]
+        ev = us_eval_map.get(ticker)
+        if ev and (ev.get("stop_loss_triggered") or ev.get("trailing_stop_triggered")):
+            reason = "손절(-7% 청산)" if ev.get("stop_loss_triggered") else "트레일링 익절(고점 반락 -8%)"
+            proceeds_krw = ev["current_val_krw"]
+            cash_addition_krw += proceeds_krw
+            action_desc = f"[미국 {reason}] {ev['name']}({ticker}): {ev['shares']}주 전량 청산 (${ev['current_val_usd']:.2f} / {proceeds_krw:,}원 회수, 수익률: {ev['pnl_pct']:+.1f}%)"
+            actions_taken.append({
+                "market": "US",
+                "code": ticker,
+                "name": ev["name"],
+                "reason": reason,
+                "pnl_pct": ev["pnl_pct"],
+                "proceeds_krw": proceeds_krw,
+                "desc": action_desc
+            })
+        else:
+            new_us_holdings.append(h)
+            
+    if actions_taken:
+        ledger["holdings_kr"] = new_kr_holdings
+        ledger["holdings_us"] = new_us_holdings
+        ledger["cash_krw"] = ledger.get("cash_krw", 0) + cash_addition_krw
+        if "trade_logs" not in ledger:
+            ledger["trade_logs"] = []
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for act in actions_taken:
+            ledger["trade_logs"].append({
+                "timestamp": now_str,
+                "action": act["desc"],
+                "pnl_pct": act["pnl_pct"],
+                "proceeds_krw": act["proceeds_krw"]
+            })
+        save_paper_ledger(ledger)
+        update_paper_ledger_market_values(api=api)
+        
+        # 텔레그램 긴급 알림 발송
+        if send_telegram and config.TELEGRAM_TOKEN and config.TELEGRAM_CHAT_ID:
+            msg_lines = ["🚨 *[AI 퀀트 리스크 관리 긴급 주문 체결]*", f"시간: `{now_str}`", ""]
+            for a in actions_taken:
+                msg_lines.append(f"• {a['desc']}")
+            msg_lines.append(f"\n💰 *회수된 안전 예수금*: `+{cash_addition_krw:,}원`")
+            msg_lines.append("🛡️ _자본금 보존 원칙에 따라 안전 현금으로 즉시 전환되었습니다._")
+            
+            try:
+                url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
+                payload = {
+                    "chat_id": config.TELEGRAM_CHAT_ID,
+                    "text": "\n".join(msg_lines),
+                    "parse_mode": "Markdown"
+                }
+                requests.post(url, json=payload, timeout=5)
+            except Exception as e:
+                print(f"[Telegram Alert Error] {e}")
+            
+    return actions_taken
+
