@@ -43,7 +43,7 @@ from agents import run_investment_committee, get_live_macro_indicators
 from stock_doctor import (
     get_stock_doctor_data, diagnose_stock_with_ai,
     get_us_stock_data, diagnose_us_stock_with_ai,
-    POPULAR_US_STOCKS
+    POPULAR_US_STOCKS, get_stock_candlestick_data
 )
 from daily_briefing import generate_morning_briefing, send_telegram_message
 
@@ -60,13 +60,16 @@ try:
     importlib.reload(paper_ledger)
     from paper_ledger import (
         update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger,
-        get_stops_monitoring_status, execute_risk_management_stops
+        get_stops_monitoring_status, execute_risk_management_stops,
+        export_ledger_holdings_csv, export_ledger_history_csv
     )
 except Exception:
     import paper_ledger
     from paper_ledger import update_paper_ledger_market_values, record_daily_snapshot, load_paper_ledger
     get_stops_monitoring_status = getattr(paper_ledger, 'get_stops_monitoring_status', lambda **k: [])
     execute_risk_management_stops = getattr(paper_ledger, 'execute_risk_management_stops', lambda **k: [])
+    export_ledger_holdings_csv = getattr(paper_ledger, 'export_ledger_holdings_csv', lambda **k: "")
+    export_ledger_history_csv = getattr(paper_ledger, 'export_ledger_history_csv', lambda: "")
 
 try:
     import telegram_interactive
@@ -200,9 +203,74 @@ st.sidebar.info("""
 6. **🤖 트레이딩팀:** 한·미 주식 분할 주문 자동 집행
 """)
 
-# Main Title
-st.title("🏛️ 가상 AI 증권사 : 글로벌 버핏 퀀트 자산운용 시스템")
-st.caption("5대 전문 부서 AI 에이전트 군단이 실시간 경제 지표와 글로벌 기업 컨센서스를 심의하여 운용하는 지능형 투자 시스템")
+def render_interactive_candlestick(ticker_or_code: str, stock_name: str, is_us: bool = False):
+    """트레이딩뷰 스타일 3개월 일봉 캔들스틱 + 20/60일선 인터랙티브 차트 렌더링"""
+    df_candle = get_stock_candlestick_data(ticker_or_code, is_us=is_us)
+    if df_candle.empty:
+        st.caption("차트 데이터를 수신하는 중입니다...")
+        return
+    
+    fig = go.Figure()
+    
+    # 캔들스틱 (한국은 빨강=상승/파랑=하락, 미국은 초록=상승/빨강=하락)
+    inc_col = '#eb4034' if not is_us else '#26a69a'
+    dec_col = '#1261c4' if not is_us else '#ef5350'
+    
+    fig.add_trace(go.Candlestick(
+        x=df_candle['date'],
+        open=df_candle['open'],
+        high=df_candle['high'],
+        low=df_candle['low'],
+        close=df_candle['close'],
+        name='주가(OHLC)',
+        increasing_line_color=inc_col,
+        decreasing_line_color=dec_col
+    ))
+    
+    # 20일 이동평균선
+    if 'SMA20' in df_candle.columns:
+        fig.add_trace(go.Scatter(
+            x=df_candle['date'],
+            y=df_candle['SMA20'],
+            mode='lines',
+            name='20일선 (단기추세)',
+            line=dict(color='#ff9800', width=1.5)
+        ))
+        
+    # 60일 이동평균선
+    if 'SMA60' in df_candle.columns:
+        fig.add_trace(go.Scatter(
+            x=df_candle['date'],
+            y=df_candle['SMA60'],
+            mode='lines',
+            name='60일선 (수급생명선)',
+            line=dict(color='#4caf50', width=1.5)
+        ))
+        
+    fig.update_layout(
+        title=f"📈 {stock_name} ({ticker_or_code}) 최근 3개월 일봉 & 추세선",
+        xaxis_rangeslider_visible=False,
+        height=360,
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        template="plotly_white"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# Main Title & Action Bar
+col_head_title, col_head_btn = st.columns([3, 1])
+with col_head_title:
+    st.title("🏛️ 가상 AI 증권사 : 글로벌 버핏 퀀트 자산운용 시스템")
+    st.caption("5대 전문 부서 AI 에이전트 군단이 실시간 경제 지표와 글로벌 기업 컨센서스를 심의하여 운용하는 지능형 투자 시스템")
+with col_head_btn:
+    st.write("")
+    if st.button("🔄 실시간 시세 즉시 갱신 (Live Refresh)", type="secondary", help="인메모리 캐시를 초기화하고 한·미 주식 실시간 호가 및 평가액을 즉시 새로고침합니다."):
+        from paper_ledger import _PRICE_CACHE, _KR_CACHE, _FX_CACHE
+        _PRICE_CACHE.clear()
+        _KR_CACHE.clear()
+        _FX_CACHE["time"] = 0.0
+        st.toast("⚡ 실시간 시세 및 원장 데이터가 성공적으로 갱신되었습니다!", icon="✅")
+        st.rerun()
 
 # 1. Market Regime & Account Metrics
 regime_info = get_dynamic_regime_allocation()
@@ -414,6 +482,9 @@ with tab_doctor:
             # Recent Flows
             st.caption(f"👥 최근 3거래일 누적 외인 순매수: **{stock_info['foreign_net_sum']:,}주** | 기관 순매수: **{stock_info['organ_net_sum']:,}주** | 배당수익률: **{stock_info['dividend_yield']}**")
 
+            # Interactive TradingView-style Candlestick Chart
+            render_interactive_candlestick(selected_code, stock_info['name'], is_us=False)
+
             btn_diagnose = st.button(f"🩺 [{stock_info['name']}] 5대 부서 종합 건강검진 시작", type="primary")
 
             if btn_diagnose:
@@ -473,6 +544,9 @@ with tab_doctor:
             if us_stock_info.get("summary"):
                 st.info(f"🏢 **기업 개요:** {us_stock_info['summary']}")
             st.caption(f"💡 **소수점 매매 팁:** 미래에셋/한국투자증권 계좌로 1주 단위가 아니더라도 0.01주 단위(약 1~2만 원)로 분할 매수 가능합니다.")
+
+            # Interactive TradingView-style Candlestick Chart
+            render_interactive_candlestick(selected_ticker, us_stock_info['name'], is_us=True)
 
             btn_us_diagnose = st.button(f"🩺 [{us_stock_info['name']} ({selected_ticker})] 5대 부서 종합 건강검진 시작", type="primary")
 
@@ -710,6 +784,78 @@ with tab_portfolio:
             delta=f"{ledger_data['last_updated'][:16]} 갱신"
         )
 
+    # ---------------------------------------------------------
+    # 🍩 실시간 자산 배분 도넛 차트 & 글로벌 섹터 트리맵 (Plotly)
+    # ---------------------------------------------------------
+    col_chart_donut, col_chart_tree = st.columns(2)
+    
+    with col_chart_donut:
+        donut_labels = []
+        donut_values = []
+        donut_colors = []
+        
+        for k in ledger_data.get("kr_evaluated", []):
+            donut_labels.append(f"🇰🇷 {k['name']}")
+            donut_values.append(k["current_val_krw"])
+            donut_colors.append("#2563eb")
+        for u in ledger_data.get("us_evaluated", []):
+            donut_labels.append(f"🇺🇸 {u['name'].split(' (')[0]}")
+            donut_values.append(u["current_val_krw"])
+            donut_colors.append("#059669")
+        donut_labels.append("💰 안전 예수금")
+        donut_values.append(ledger_data["cash_krw"])
+        donut_colors.append("#f59e0b")
+        
+        fig_donut = go.Figure(go.Pie(
+            labels=donut_labels,
+            values=donut_values,
+            hole=0.48,
+            textinfo="label+percent",
+            insidetextorientation="radial",
+            hoverinfo="label+value+percent"
+        ))
+        fig_donut.update_layout(
+            title="🍩 실시간 자산 배분 비중 (한국/미국/현금)",
+            height=340,
+            margin=dict(l=10, r=10, t=40, b=10),
+            showlegend=False
+        )
+        st.plotly_chart(fig_donut, use_container_width=True)
+
+    with col_chart_tree:
+        tree_labels = ["전체 포트폴리오", "한국 우량주", "미국 독점주", "안전 예수금"]
+        tree_parents = ["", "전체 포트폴리오", "전체 포트폴리오", "전체 포트폴리오"]
+        tree_values = [
+            ledger_data["total_asset_krw"],
+            ledger_data["kr_total_val"],
+            ledger_data["us_total_val_krw"],
+            ledger_data["cash_krw"]
+        ]
+        
+        for k in ledger_data.get("kr_evaluated", []):
+            tree_labels.append(k["name"])
+            tree_parents.append("한국 우량주")
+            tree_values.append(k["current_val_krw"])
+            
+        for u in ledger_data.get("us_evaluated", []):
+            tree_labels.append(u["name"].split(" (")[0])
+            tree_parents.append("미국 독점주")
+            tree_values.append(u["current_val_krw"])
+            
+        fig_tree = go.Figure(go.Treemap(
+            labels=tree_labels,
+            parents=tree_parents,
+            values=tree_values,
+            branchvalues="total",
+            marker=dict(colorscale="Blues")
+        ))
+        fig_tree.update_layout(
+            title="🗺️ 포트폴리오 섹터 & 종목 분산 트리맵",
+            height=340,
+            margin=dict(l=10, r=10, t=40, b=10)
+        )
+        st.plotly_chart(fig_tree, use_container_width=True)
+
     with st.expander("🔍 현재 실전 보유 종목별 실시간 Mark-to-Market 상세", expanded=True):
         col_kr_hold, col_us_hold = st.columns(2)
         with col_kr_hold:
@@ -743,6 +889,29 @@ with tab_portfolio:
                 st.dataframe(us_disp, use_container_width=True, hide_index=True)
                 st.caption(f"🇺🇸 미국 주식 평가 합계: **{ledger_data['us_total_val_krw']:,}원**")
 
+        st.markdown("---")
+        col_dl1, col_dl2, col_dl_desc = st.columns([1, 1, 2])
+        with col_dl1:
+            csv_holdings = export_ledger_holdings_csv(api=api)
+            st.download_button(
+                label="📥 보유 종목 원장 다운로드 (CSV)",
+                data=csv_holdings,
+                file_name=f"buffett_ledger_holdings_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                type="secondary"
+            )
+        with col_dl2:
+            csv_history = export_ledger_history_csv()
+            st.download_button(
+                label="📥 일일 자산 추이 다운로드 (CSV)",
+                data=csv_history,
+                file_name=f"buffett_ledger_history_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                type="secondary"
+            )
+        with col_dl_desc:
+            st.caption("💡 엑셀 또는 구글 스프레드시트에서 열어 세무 신고 및 장기 복리 성과를 분석하실 수 있습니다.")
+
     # ---------------------------------------------------------
     # 동적 리스크 관리 & 트레일링 스톱(Trailing Stop) 실시간 관제판
     # ---------------------------------------------------------
@@ -775,6 +944,99 @@ with tab_portfolio:
                     st.success("✅ 모든 종목이 안전 범위 내에 있습니다. (손절/익절 반락 종목 없음)")
         with col_stop_info:
             st.info("💡 텔레그램 스마트폰 채팅창에 `/스톱`을 입력하시면 언제든 이 화면을 손안에서 확인하실 수 있습니다.")
+
+    # ---------------------------------------------------------
+    # 🌪️ 역사적 블랙스완 위기 스트레스 테스터 (Macro Crisis Simulator)
+    # ---------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🌪️ 역사적 블랙스완 위기 스트레스 테스터 (Macro Crisis Simulator)")
+    st.caption("글로벌 금융 시장에 최악의 충격이 닥쳤을 때, '달러 환차익'과 '동적 안전 현금 버퍼'가 내 200만 원 계좌를 어떻게 방어하는지 시뮬레이션합니다.")
+
+    crisis_choice = st.radio(
+        "테스트할 역사적 위기 시나리오 선택",
+        [
+            "📉 2008 리먼브라더스 서브프라임 금융위기 (KOSPI -45%, S&P -50%, 환율 +35% 급등)",
+            "🦠 2020 코로나 팬데믹 글로벌 셧다운 폭락 (KOSPI -35%, 나스닥 -30%, 환율 +15% 상승)",
+            "⚡ 2022 Fed 초고속 금리인상 & 기술주 긴축 쇼크 (KOSPI -25%, 나스닥 -33%, 환율 +20% 상승)"
+        ],
+        horizontal=False
+    )
+
+    if "2008" in crisis_choice:
+        kr_drop = -0.45
+        us_drop = -0.50
+        fx_gain = 0.35
+        crisis_title = "2008 글로벌 금융위기"
+    elif "2020" in crisis_choice:
+        kr_drop = -0.35
+        us_drop = -0.30
+        fx_gain = 0.15
+        crisis_title = "2020 코로나 팬데믹 쇼크"
+    else:
+        kr_drop = -0.25
+        us_drop = -0.33
+        fx_gain = 0.20
+        crisis_title = "2022 Fed 금리인상 긴축 쇼크"
+
+    # 시뮬레이션 계산 (현재 자산 기준)
+    curr_seed = ledger_data["total_asset_krw"]
+    kr_portion = ledger_data["kr_total_val"]
+    us_portion = ledger_data["us_total_val_krw"]
+    cash_portion = ledger_data["cash_krw"]
+
+    # 1. KOSPI 단순 100% 몰빵 시
+    plain_loss_pct = kr_drop * 100
+    plain_final_krw = int(curr_seed * (1 + kr_drop))
+
+    # 2. 버핏 퀀트 한·미 듀얼 엔진 시 (달러 환차익 + 현금 버퍼 작동)
+    sim_kr_loss = kr_portion * kr_drop
+    sim_us_real_ret = (1 + us_drop) * (1 + fx_gain) - 1
+    sim_us_loss = us_portion * sim_us_real_ret
+    sim_total_loss = sim_kr_loss + sim_us_loss
+    dual_final_krw = int(curr_seed + sim_total_loss)
+    dual_loss_pct = (sim_total_loss / curr_seed) * 100
+    defended_amt = dual_final_krw - plain_final_krw
+
+    col_sim_c1, col_sim_c2, col_sim_c3 = st.columns(3)
+    with col_sim_c1:
+        st.metric(
+            label="일반 KOSPI 100% 몰빵 시 예상 잔고",
+            value=f"{plain_final_krw:,} 원",
+            delta=f"{plain_loss_pct:.1f}% 폭락 (원금 {curr_seed-plain_final_krw:,}원 증발)",
+            delta_color="inverse"
+        )
+    with col_sim_c2:
+        st.metric(
+            label="버핏 퀀트 듀얼 엔진 예상 잔고",
+            value=f"{dual_final_krw:,} 원",
+            delta=f"{dual_loss_pct:.1f}% (달러 환차익 방어 작동)",
+            delta_color="normal"
+        )
+    with col_sim_c3:
+        st.metric(
+            label="🛡️ 위기 시 방어된 원금 (보호 금액)",
+            value=f"+{defended_amt:,} 원",
+            delta=f"MDD {(1 - abs(dual_loss_pct)/abs(plain_loss_pct))*100:.1f}% 감소 효과"
+        )
+
+    # 시각적 비교 막대 차트
+    fig_stress = go.Figure()
+    fig_stress.add_trace(go.Bar(
+        x=["KOSPI 100% 몰빵", "버핏 퀀트 한·미 듀얼"],
+        y=[plain_loss_pct, dual_loss_pct],
+        marker_color=["#ef4444", "#10b981"],
+        text=[f"{plain_loss_pct:.1f}%", f"{dual_loss_pct:.1f}%"],
+        textposition="outside"
+    ))
+    fig_stress.update_layout(
+        title=f"📊 [{crisis_title}] 시뮬레이션: 예상 손실률 비교 (방어율 시각화)",
+        yaxis_title="예상 수익률 (%)",
+        height=320,
+        margin=dict(l=20, r=20, t=40, b=20),
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_stress, use_container_width=True)
+    st.success(f"💡 **방어 핵심 원리**: 미국 독점주가 {us_drop*100:.0f}% 급락하더라도 위기 때마다 치솟는 달러 환율(+{fx_gain*100:.0f}%)과 안전 현금 버퍼({cash_portion:,}원)가 손실을 강하게 상쇄하여, KOSPI 몰빵 대비 **약 {defended_amt:,}원의 원금을 온전히 보존**합니다.")
 
     st.markdown("---")
     st.markdown("### 🎯 다음 분기 목표 리밸런싱 포트폴리오 계획")

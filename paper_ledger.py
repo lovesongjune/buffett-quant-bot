@@ -485,3 +485,59 @@ def execute_risk_management_stops(api=None, send_telegram=True) -> list:
             
     return actions_taken
 
+def export_ledger_holdings_csv(api=None) -> str:
+    """실전 가상계좌의 실시간 평가 데이터를 CSV 문자열로 추출 (UTF-8-SIG 호환)"""
+    eval_res = update_paper_ledger_market_values(api=api)
+    rows = []
+    for k in eval_res.get("kr_evaluated", []):
+        rows.append({
+            "국가": "한국(KR)",
+            "종목코드": k["code"],
+            "종목명": k["name"],
+            "보유수량": k["shares"],
+            "매수가": f"{k['entry_price']:,}원",
+            "현재가": f"{k['current_price']:,}원",
+            "평가금액(원)": k["current_val_krw"],
+            "손익금액(원)": k["pnl_amt_krw"],
+            "수익률(%)": f"{k['pnl_pct']:+.2f}%",
+            "최고가": f"{k.get('highest_price', k['entry_price']):,}원",
+            "손절기준가(-7%)": f"{k.get('stop_loss_price', 0):,}원",
+            "트레일링익절선": f"{k.get('trailing_stop_price', '비활성')}",
+            "상태": k.get("risk_status", "정상 보유")
+        })
+    for u in eval_res.get("us_evaluated", []):
+        rows.append({
+            "국가": "미국(US)",
+            "종목코드": u["code"],
+            "종목명": u["name"],
+            "보유수량": u["shares"],
+            "매수가": f"${u['entry_price_usd']:.2f}",
+            "현재가": f"${u['current_price_usd']:.2f}",
+            "평가금액(원)": u["current_val_krw"],
+            "손익금액(원)": int(u.get("pnl_amt_usd", 0) * eval_res.get("fx_rate", 1365.0)),
+            "수익률(%)": f"{u['pnl_pct']:+.2f}%",
+            "최고가": f"${u.get('highest_price_usd', u['entry_price_usd']):.2f}",
+            "손절기준가(-7%)": f"${u.get('stop_loss_price_usd', 0):.2f}",
+            "트레일링익절선": f"{u.get('trailing_stop_price_usd', '비활성')}",
+            "상태": u.get("risk_status", "정상 보유")
+        })
+    df = pd.DataFrame(rows)
+    return df.to_csv(index=False, encoding="utf-8-sig")
+
+def export_ledger_history_csv() -> str:
+    """일일 자산 추이 스냅샷 히스토리를 CSV 문자열로 추출"""
+    ledger = load_paper_ledger()
+    history = ledger.get("history", [])
+    df = pd.DataFrame(history)
+    if not df.empty:
+        df = df.rename(columns={
+            "date": "일자",
+            "total_asset_krw": "총평가자산(원)",
+            "daily_pnl_pct": "일일손익률(%)",
+            "cum_return_pct": "누적수익률(%)",
+            "cash_krw": "예수금(원)",
+            "benchmark_return_pct": "KOSPI대비수익률(%)"
+        })
+    return df.to_csv(index=False, encoding="utf-8-sig")
+
+

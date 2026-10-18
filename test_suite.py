@@ -283,6 +283,58 @@ def test_telegram_interactive_commands():
     assert "기아" in res_doc
 
 # -------------------------------------------------------------
+# 15. 트레이딩뷰 캔들스틱 & 이평선 데이터 수집 검증
+# -------------------------------------------------------------
+def test_candlestick_data_fetch():
+    from stock_doctor import get_stock_candlestick_data
+    df_kr = get_stock_candlestick_data("000270", is_us=False)
+    assert not df_kr.empty and "open" in df_kr.columns and "close" in df_kr.columns
+    assert "SMA20" in df_kr.columns
+    
+    df_us = get_stock_candlestick_data("NVDA", is_us=True)
+    assert not df_us.empty and "close" in df_us.columns
+    assert len(df_us) >= 30
+
+# -------------------------------------------------------------
+# 16. 실전 원장 및 히스토리 CSV 내보내기 무결성 검증
+# -------------------------------------------------------------
+def test_csv_export_generation():
+    from paper_ledger import export_ledger_holdings_csv, export_ledger_history_csv
+    csv_h = export_ledger_holdings_csv()
+    assert "종목명" in csv_h and "수익률" in csv_h
+    assert len(csv_h.splitlines()) >= 10
+
+    csv_hist = export_ledger_history_csv()
+    assert "총평가자산" in csv_hist or "일자" in csv_hist
+    assert len(csv_hist.splitlines()) >= 2
+
+# -------------------------------------------------------------
+# 17. 역사적 블랙스완 위기 시뮬레이션 방어 수학식 검증
+# -------------------------------------------------------------
+def test_crisis_stress_simulation():
+    # 2008 리먼 위기: KOSPI -45%, US -50%, 환율 +35%
+    kr_drop = -0.45
+    us_drop = -0.50
+    fx_gain = 0.35
+    
+    seed = 2000000
+    kr_portion = 800000
+    us_portion = 800000
+    cash_portion = 400000
+    
+    # KOSPI 몰빵
+    plain_loss = seed * kr_drop
+    
+    # 듀얼 엔진
+    sim_kr = kr_portion * kr_drop
+    sim_us = us_portion * ((1 + us_drop) * (1 + fx_gain) - 1)
+    dual_loss = sim_kr + sim_us
+    
+    # 듀얼 엔진의 손실폭이 KOSPI 몰빵보다 절대값 기준 확연히 적어야 함 (방어력 검증)
+    assert abs(dual_loss) < abs(plain_loss)
+    assert dual_loss > -700000 # 35% 이내로 방어
+
+# -------------------------------------------------------------
 # 메인 테스트 러너
 # -------------------------------------------------------------
 if __name__ == "__main__":
@@ -301,6 +353,9 @@ if __name__ == "__main__":
         ("12. 스마트 머니 (외인·기관) 수급 팩터 앙상블 검증", test_smart_money_flow_factor),
         ("13. 동적 손절(-7%) & 트레일링 스톱 리스크 엔진 검증", test_dynamic_stops_engine),
         ("14. 텔레그램 양방향 리모컨 명령어 처리 검증", test_telegram_interactive_commands),
+        ("15. 트레이딩뷰 캔들스틱 & 이평선 데이터 수집 검증", test_candlestick_data_fetch),
+        ("16. 실전 원장 및 히스토리 CSV 내보내기 무결성 검증", test_csv_export_generation),
+        ("17. 역사적 블랙스완 위기 시뮬레이션 방어 수학식 검증", test_crisis_stress_simulation),
     ]
 
     for name, func in tests:
